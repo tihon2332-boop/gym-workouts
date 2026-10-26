@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Тренировки</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --yellow: #fdf100;
+    --text: #222;
+    --muted: #777;
+    --bg: #f4f4f4;
+    --card: #fff;
+    --done: #2e9e4f;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); padding-bottom: 90px; }
+
+  header { background: var(--yellow); padding: 14px 16px; position: sticky; top: 0; z-index: 5; font-weight: 600; }
+  .tabs { display: flex; gap: 8px; margin-top: 10px; }
+  .tab { flex: 1; padding: 8px 4px; border-radius: 10px; border: 0; background: rgba(255,255,255,.55); font-size: 13px; font-weight: 600; }
+  .tab.active { background: #fff; }
+
+  main { padding: 0 12px; }
+  h1 { font-size: 26px; margin: 18px 4px 2px; }
+  .date { margin: 0 4px 16px; color: var(--muted); }
+
+  #session { display: none; justify-content: space-between; align-items: center; margin-top: 10px; background: #222; color: #fff; border-radius: 10px; padding: 8px 8px 8px 14px; font-size: 18px; font-variant-numeric: tabular-nums; }
+  #session button { background: var(--yellow); border: 0; border-radius: 8px; padding: 7px 12px; font-weight: 700; }
+  .start { width: 100%; padding: 16px; border: 0; border-radius: 14px; background: var(--yellow); font-size: 16px; font-weight: 700; margin-bottom: 14px; }
+
+  .card { background: var(--card); border-radius: 14px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .card-head h2 { font-size: 17px; margin: 0; line-height: 1.3; }
+  .check { flex: 0 0 34px; width: 34px; height: 34px; border-radius: 50%; border: 2px solid #aaa; background: #fff; color: #fff; font-size: 18px; line-height: 1; }
+  .card.done .check { background: var(--done); border-color: var(--done); }
+  .card.done h2 { color: var(--muted); }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 15px; text-align: center; }
+  th { font-size: 12px; font-weight: 700; padding: 4px 2px; }
+  td { padding: 6px 2px; }
+  td.n { font-weight: 700; }
+  td.prev { color: var(--muted); }
+  input.today { width: 78px; padding: 6px; border: 1px solid #ddd; border-radius: 8px; text-align: center; font-size: 15px; }
+  .rest { border: 0; background: #f0f0f0; border-radius: 8px; padding: 6px 8px; font-size: 14px; }
+
+  #timer { position: fixed; left: 12px; right: 12px; bottom: 12px; background: #222; color: #fff; border-radius: 14px; padding: 14px 18px; display: none; justify-content: space-between; align-items: center; font-size: 18px; font-weight: 700; z-index: 10; }
+  #timer button { background: var(--yellow); border: 0; border-radius: 8px; padding: 8px 12px; font-weight: 700; }
+  .empty { text-align: center; color: var(--muted); margin-top: 60px; }
+</style>
+</head>
+<body>
+
+<header>
+  Тренировки
+  <div class="tabs" id="tabs"></div>
+  <div id="session"><span>⏱ <span id="sessionTime">0:00:00</span></span><button id="sessionStop">Завершить</button></div>
+</header>
+
+<main id="app"></main>
+
+<div id="timer"><span id="timerText">Отдых 0:00</span><button id="timerStop">Пропустить</button></div>
+
+<script>
+// ---------- Данные тренировок ----------
+// sets: прошлый результат "повторения x вес" для каждого подхода.
+// reps — сколько повторений нужно, rest — отдых в секундах.
+const WORKOUTS = [
+  {
+    id: "back-biceps",
+    tab: "Спина + бицепс",
+    title: "Спина + бицепс",
+    exercises: [
+      { name: "Гиперэкстензия (угловая) (руки на груди) \\\\П\\\\", reps: ["15","15","15","15"], rest: 60, prev: ["15x5","15x5","15x5","15x5"] },
+      { name: "Подтягивания в гравитроне широким хватом", reps: ["12","12","12","12"], rest: 60, prev: ["15x33","15x33","15x33","15x33"] },
+      { name: "Тяга вертикального блока паралельным хватом (к груди) \\\\Н\\\\", reps: ["15","15","15","15"], rest: 60, prev: ["15x45","15x40","15x40","15x40"] },
+      { name: "Тяга гантели к поясу, с опорой на скамью", reps: ["12","12","12"], rest: 60, prev: ["12x17.5","12x17.5","12x17.5"] },
+      { name: "Вертикальная тяга в хаммере 1-й рукой \\\\П\\\\", reps: ["12-15","12-15","12-15"], rest: 30, prev: ["15x22.5","15x25","15x25"] },
+      { name: "Сгибание одной руки на бицепс с гантелью (в скамье Л.Скотта)", reps: ["12-15","12-15","12-15","12-15"], rest: 60, prev: ["15x10","12x12.5","16x10","16x10"] },
+      { name: "Сгибание рук на бицепс стоя, со штангой (хватом снизу)", reps: ["12","12","10","10"], rest: 60, prev: ["12x25","11x25","10x25","10x25"] },
+      { name: "Пресс скручивания с опорой на руки", reps: [], rest: 60, prev: [] } // подходы допишем по фото
+    ]
+  },
+  {
+    id: "chest-shoulders",
+    tab: "Грудь + плечи",
+    title: "Грудь + плечи",
+    exercises: [
+      { name: "Жим штанги лежа (гориз. скамья) \\\\П\\\\", reps: ["12","12","10","10"], rest: 60, prev: ["12x60","12x65","10x65","10x65"] },
+      { name: "Жим в \"Хаммере\" (НИЗ груди) \\\\П\\\\", reps: ["15","15","15","15"], rest: 60, prev: ["15x70","15x75","15x75","15x75"] },
+      { name: "Жим гантелей лежа в наклонной скамье", reps: ["12","12","10","10"], rest: 60, prev: ["12x22.5","12x22.5","10x20","10x20"] },
+      { name: "Разведение гантелей лежа на наклонной скамье", reps: ["15","15","12","12"], rest: 60, prev: ["15x10","13x12.5","12x12.5","12x12.5"] },
+      { name: "Жим на плечи (лежа в тренажере) \\\\П\\\\", reps: ["12","12","12","12"], rest: 60, prev: ["11x35","11x30","11x30","10x30"] },
+      { name: "Протяжка к груди в тренажере \"Смитта\" (широким хватом) \\\\П\\\\", reps: ["15","15","15","15"], rest: 60, prev: ["15x30","15x30","15x30","15x30"] },
+      { name: "Разведение гантелей стоя (на плечи)", reps: ["20","20","20","20"], rest: 60, prev: ["20x7","20x7","20x7","20x7"] },
+      { name: "Жим гантелей сидя (на плечи)", reps: ["12","12","10","10"], rest: 60, prev: ["12x15","12x15","10x15","10x15"] },
+      { name: "Пресс (махи 2 ноги вместе, лежа)", reps: [], rest: 60, prev: [] } // подходы допишем по фото
+    ]
+  },
+  {
+    id: "legs-chest",
+    tab: "Ноги + грудь",
+    title: "Ноги + грудь",
+    exercises: [
+      { name: "Жим ногами в \"платформе\" (паралельная постановка стоп) \\\\П\\\\", reps: ["12","12","12","12"], rest: 60, prev: ["12x50","12x55","12x55","12x55"] },
+      { name: "Сгибание ног лежа (в тренажере)", reps: ["20","20","20","20"], rest: 60, prev: ["20x30","20x30","20x30","20x30"] },
+      { name: "Разгибание ног (сидя в тренажере)", reps: ["20","20","20","20"], rest: 60, prev: ["20x40","20x40","20x40","20x40"] },
+      { name: "Жим штанги лежа на наклонной скамье в тренажере Смита \\\\П\\\\", reps: ["12","12","10","10"], rest: 60, prev: ["12x50","12x50","10x50","10x50"] },
+      { name: "Жим гантелей лежа в наклонной скамье", reps: ["12","12","10","10"], rest: 60, prev: ["12x22.5","12x22.5","8x22.5","10x22.5"] },
+      { name: "Сведение рук в кроссовере стоя, с верхнего блока (верхнее положение блока) \\\\Н\\\\", reps: ["15","15","15"], rest: 60, prev: ["15x12.5","15x12.5","15x12.5"] },
+      { name: "Сведение рук в тренажере ПЕК-ДЭК \\\\Н\\\\", reps: ["15","15","15"], rest: 60, prev: ["15x40","15x40","15x45"] },
+      { name: "Пресс - скручивания в тренажере", reps: [], rest: 60, prev: [] } // название обрезано на скриншоте, подходы допишем
+    ]
+  }
+];
+
+// ---------- Telegram ----------
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+// ---------- Сохранение (localStorage — память браузера внутри телефона) ----------
+const KEY = "gym-state-v1";
+let state = {};
+try { state = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+
+let current = WORKOUTS[0].id;
+const dayKey = () => new Date().toISOString().slice(0, 10);
+function slot(wid, ei) {
+  const d = (state[dayKey()] ??= {});
+  const w = (d[wid] ??= {});
+  return (w[ei] ??= { done: false, today: [] });
+}
+
+// ---------- Отрисовка ----------
+const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmt = s => Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+const weekdays = ["вс","пн","вт","ср","чт","пт","сб"];
+
+function render() {
+  document.getElementById("tabs").innerHTML = WORKOUTS.map(w =>
+    `<button class="tab ${w.id === current ? "active" : ""}" data-w="${w.id}">${esc(w.tab)}</button>`).join("");
+
+  const w = WORKOUTS.find(x => x.id === current);
+  const now = new Date();
+  const dateStr = `${weekdays[now.getDay()]} ${now.toLocaleDateString("ru-RU")}`;
+  let html = `<h1>${esc(w.title)}</h1><div class="date">${dateStr}</div>`;
+  if (!sessionStart) html += `<button class="start" id="startBtn">Начать тренировку!</button>`;
+
+  if (!w.exercises.length) {
+    html += `<div class="empty">Эта тренировка пока пустая</div>`;
+  } else {
+    w.exercises.forEach((ex, ei) => {
+      const s = slot(w.id, ei);
+      const rows = ex.reps.map((r, si) => `
+        <tr>
+          <td class="n">${si + 1}</td>
+          <td>${r}</td>
+          <td><button class="rest" data-rest="${ex.rest}">${fmt(ex.rest)}</button></td>
+          <td class="prev">${ex.prev[si] || ""}</td>
+          <td><input class="today" inputmode="decimal" placeholder="15x20" value="${esc(s.today[si] || "")}" data-e="${ei}" data-s="${si}"></td>
+        </tr>`).join("");
+      html += `
+        <section class="card ${s.done ? "done" : ""}">
+          <div class="card-head">
+            <h2>${esc(ex.name)}</h2>
+            <button class="check" data-e="${ei}">${s.done ? "✓" : ""}</button>
+          </div>
+          ${ex.reps.length ? `<table>
+            <tr><th>Подход</th><th>Повторения</th><th>Отдых</th><th>Прошлый раз</th><th>Сегодня</th></tr>
+            ${rows}
+          </table>` : ""}
+        </section>`;
+    });
+  }
+  document.getElementById("app").innerHTML = html;
+}
+
+// ---------- События ----------
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (t.dataset.w) { current = t.dataset.w; render(); }
+  else if (t.classList.contains("check")) {
+    const s = slot(current, t.dataset.e); s.done = !s.done; save(); render();
+  }
+  else if (t.dataset.rest) startTimer(+t.dataset.rest);
+  else if (t.id === "timerStop") stopTimer();
+  else if (t.id === "startBtn") startSession();
+  else if (t.id === "sessionStop") stopSession();
+});
+document.addEventListener("input", e => {
+  if (e.target.classList.contains("today")) {
+    slot(current, e.target.dataset.e).today[e.target.dataset.s] = e.target.value; save();
+  }
+});
+
+// ---------- Таймер отдыха ----------
+let tick = null;
+function startTimer(sec) {
+  stopTimer();
+  const box = document.getElementById("timer"), txt = document.getElementById("timerText");
+  let left = sec; box.style.display = "flex"; txt.textContent = "Отдых " + fmt(left);
+  tick = setInterval(() => {
+    left--; txt.textContent = "Отдых " + fmt(Math.max(left, 0));
+    if (left <= 0) { stopTimer(); if (tg) tg.HapticFeedback.notificationOccurred("success"); else navigator.vibrate && navigator.vibrate(300); }
+  }, 1000);
+}
+function stopTimer() { clearInterval(tick); document.getElementById("timer").style.display = "none"; }
+
+// ---------- Секундомер всей тренировки ----------
+// Время старта хранится в памяти телефона, поэтому счёт не сбивается при закрытии приложения.
+let sessionStart = +localStorage.getItem("gym-session-start") || 0;
+let sessionTick = null;
+function drawSession() {
+  const s = Math.floor((Date.now() - sessionStart) / 1000);
+  document.getElementById("sessionTime").textContent =
+    Math.floor(s / 3600) + ":" + String(Math.floor(s / 60) % 60).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+}
+function runSession() {
+  document.getElementById("session").style.display = "flex";
+  drawSession(); clearInterval(sessionTick); sessionTick = setInterval(drawSession, 1000);
+}
+function startSession() {
+  sessionStart = Date.now();
+  try { localStorage.setItem("gym-session-start", sessionStart); } catch (e) {}
+  runSession(); render();
+}
+function stopSession() {
+  if (!confirm("Завершить тренировку?")) return;
+  clearInterval(sessionTick); sessionStart = 0;
+  try { localStorage.removeItem("gym-session-start"); } catch (e) {}
+  document.getElementById("session").style.display = "none"; render();
+}
+
+render();
+if (sessionStart) runSession();
+</script>
+</body>
+</html>
