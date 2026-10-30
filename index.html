@@ -21,6 +21,22 @@
   .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; }
   .tab { padding: 8px 2px; border-radius: 10px; border: 0; background: rgba(255,255,255,.55); font-size: 12px; font-weight: 600; }
   .tab.active { background: #fff; }
+  .tab.running { box-shadow: inset 0 0 0 2px #222; }
+  .tab.running::before { content: "● "; color: var(--done); }
+  #sessionName { font-size: 13px; opacity: .75; margin-left: 6px; }
+
+  .card { cursor: pointer; }
+  .card-body { display: flex; gap: 10px; align-items: flex-start; }
+  .card-body table { flex: 1; min-width: 0; }
+  .thumb { width: 34%; max-width: 130px; border-radius: 8px; margin-top: 12px; object-fit: cover; }
+  .back { border: 0; background: none; font-size: 16px; font-weight: 600; padding: 14px 4px 0; }
+  .ex-title { font-size: 22px; margin: 8px 4px 2px; }
+  .photo { width: 100%; border-radius: 14px; margin-bottom: 12px; }
+  .detail { margin-top: 0; font-size: 14px; }
+  .detail .card, section.card:has(.detail) { cursor: default; }
+  input.inp { width: 56px; padding: 8px 4px; border: 1px solid #ddd; border-radius: 8px; text-align: center; font-size: 16px; }
+  button.ghost { margin-top: 10px; width: 100%; padding: 14px; border: 0; border-radius: 14px; background: #fff; font-size: 15px; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  td.val { white-space: nowrap; }
 
   main { padding: 0 12px; }
   h1 { font-size: 26px; margin: 18px 4px 2px; }
@@ -77,7 +93,7 @@
 <header>
   Тренировки
   <div class="tabs" id="tabs"></div>
-  <div id="session"><span>⏱ <span id="sessionTime">0:00:00</span></span><button id="sessionStop">Завершить</button></div>
+  <div id="session"><span>⏱ <span id="sessionTime">0:00:00</span><span id="sessionName"></span></span><button id="sessionStop">Завершить</button></div>
 </header>
 
 <main id="app"></main>
@@ -143,7 +159,10 @@ const WORKOUTS = [
 
 // ---------- Telegram ----------
 const tg = window.Telegram && Telegram.WebApp;
-if (tg) { tg.ready(); tg.expand(); }
+if (tg) {
+  tg.ready(); tg.expand();
+  if (tg.BackButton && tg.isVersionAtLeast("6.1")) tg.BackButton.onClick(() => closeDetail());
+}
 
 // ---------- Сохранение ----------
 // Каждый день — отдельная запись "d_ГГГГ-ММ-ДД":
@@ -231,6 +250,7 @@ function loadAll() {
 }
 
 let current = WORKOUTS[0].id;
+let openEx = null, listScroll = 0; // открытое упражнение {w, e} и положение списка, чтобы вернуться на то же место
 const getSlot = (date, wid, ei) => (state[date] && state[date][wid] && state[date][wid].ex && state[date][wid].ex[ei]) || { done: false, today: [] };
 function setSlot(date, wid, ei) {
   const w = ((state[date] ??= {})[wid] ??= {});
@@ -340,9 +360,14 @@ function renderHistory() {
 
 function render() {
   document.getElementById("tabs").innerHTML = WORKOUTS.concat([{ id: "history", tab: "История" }]).map(w =>
-    `<button class="tab ${w.id === current ? "active" : ""}" data-w="${w.id}">${esc(w.tab)}</button>`).join("");
+    `<button class="tab ${w.id === current ? "active" : ""} ${sessionStart && w.id === sessionWid ? "running" : ""}" data-w="${w.id}">${esc(w.tab)}</button>`).join("");
+
+  if (tg && tg.BackButton && tg.isVersionAtLeast("6.1")) { // кнопка «назад» Telegram в открытом упражнении
+    try { openEx && current !== "history" ? tg.BackButton.show() : tg.BackButton.hide(); } catch (e) {}
+  }
 
   if (current === "history") { document.getElementById("app").innerHTML = renderHistory(); return; }
+  if (openEx) { renderDetail(); return; }
 
   const w = WORKOUTS.find(x => x.id === current);
   const now = new Date(), day = dayKey();
@@ -353,6 +378,7 @@ function render() {
   if (!w.exercises.length) {
     html += `<div class="empty">Эта тренировка пока пустая</div>`;
   } else {
+    // В списке результаты только показываются; вносить их можно в открытом упражнении
     w.exercises.forEach((ex, ei) => {
       const s = getSlot(day, w.id, ei);
       const prev = prevFor(w, ei);
@@ -360,34 +386,80 @@ function render() {
         <tr>
           <td class="n">${si + 1}</td>
           <td>${r}</td>
-          <td><button class="rest" data-rest="${ex.rest}">${fmt(ex.rest)}</button></td>
+          <td>${fmt(ex.rest)}</td>
           <td class="prev">${esc(prev.vals[si] || "")}</td>
-          <td><input class="today" inputmode="decimal" placeholder="15x20" value="${esc(s.today[si] || "")}" data-e="${ei}" data-s="${si}"></td>
+          <td class="val">${s.today[si] ? esc(s.today[si]) : "–"}</td>
         </tr>`).join("");
       html += `
-        <section class="card ${s.done ? "done" : ""}">
+        <section class="card ${s.done ? "done" : ""}" data-open="${ei}">
           <div class="card-head">
             <h2>${esc(ex.name)}</h2>
             <button class="check" data-e="${ei}">${s.done ? "✓" : ""}</button>
           </div>
-          ${ex.reps.length ? `<table>
-            <tr><th>Подход</th><th>Повторения</th><th>Отдых</th><th>${prev.label}</th><th>Сегодня</th></tr>
-            ${rows}
-          </table>` : ""}
+          <div class="card-body">
+            <img class="thumb" src="${photoSrc(w, ei)}" alt="" onerror="this.remove()">
+            ${ex.reps.length ? `<table>
+              <tr><th>Подход</th><th>Повторения</th><th>Отдых</th><th>${prev.label}</th><th>Сегодня</th></tr>
+              ${rows}
+            </table>` : ""}
+          </div>
         </section>`;
     });
   }
   document.getElementById("app").innerHTML = html;
 }
 
+// ---------- Открытое упражнение ----------
+// Фото лежат в папке img/ и называются <id тренировки>-<номер упражнения с нуля>.jpg, например back-biceps-0.jpg.
+// Если файла нет, фото просто не показывается.
+const photoSrc = (w, ei) => `img/${w.id}-${ei}.jpg`;
+// "15x30" -> повторения "15" и вес "30"
+function splitSet(v) {
+  v = String(v || "");
+  const m = /^\s*(\d*)\s*[xх×*]\s*(.*)$/i.exec(v);
+  return m ? { r: m[1], w: m[2] } : { r: v.trim(), w: "" };
+}
+function renderDetail() {
+  const w = WORKOUTS.find(x => x.id === openEx.w), ei = openEx.e, ex = w.exercises[ei];
+  const s = getSlot(dayKey(), w.id, ei), prev = prevFor(w, ei);
+  const rows = ex.reps.map((r, si) => {
+    const v = splitSet(s.today[si]), p = splitSet(prev.vals[si]);
+    return `<tr>
+      <td class="n">${si + 1}</td>
+      <td>${r}</td>
+      <td class="prev">${esc(prev.vals[si] || "")}</td>
+      <td><input class="inp" inputmode="numeric" placeholder="${esc(String(r).split("-")[0])}" value="${esc(v.r)}" data-s="${si}" data-k="r"></td>
+      <td><input class="inp" inputmode="decimal" placeholder="${esc(p.w)}" value="${esc(v.w)}" data-s="${si}" data-k="w"></td>
+      <td><button class="rest" data-rest="${ex.rest}">${fmt(ex.rest)}</button></td>
+    </tr>`;
+  }).join("");
+  document.getElementById("app").innerHTML = `
+    <button class="back" data-back="1">← К списку</button>
+    <h1 class="ex-title">${esc(ex.name)}</h1>
+    <div class="date">${esc(w.title)} · упражнение ${ei + 1} из ${w.exercises.length}</div>
+    <img class="photo" src="${photoSrc(w, ei)}" alt="" onerror="this.remove()">
+    <section class="card">${ex.reps.length ? `<table class="detail">
+      <tr><th>Подход</th><th>План</th><th>${prev.label}</th><th>Повторы</th><th>Вес, кг</th><th>Отдых</th></tr>
+      ${rows}
+    </table>` : `<div class="an-empty">Подходы для этого упражнения пока не добавлены.</div>`}</section>
+    <button class="start" data-donex="1">${s.done ? "✓ Выполнено (нажми, чтобы снять)" : "Отметить выполненным"}</button>
+    ${ei + 1 < w.exercises.length ? `<button class="ghost" data-next="1">Следующее упражнение →</button>` : ""}`;
+}
+function closeDetail() { openEx = null; render(); window.scrollTo(0, listScroll); }
+
 // ---------- События ----------
 document.addEventListener("click", e => {
   const t = e.target;
-  if (t.dataset.w) { current = t.dataset.w; render(); }
+  if (t.dataset.w) { current = t.dataset.w; openEx = null; render(); window.scrollTo(0, 0); }
   else if (t.classList.contains("check")) {
     const day = dayKey(), s = setSlot(day, current, t.dataset.e); s.done = !s.done; saveDay(day); render();
   }
   else if (t.dataset.rest) startTimer(+t.dataset.rest);
+  else if (t.dataset.back) closeDetail();
+  else if (t.dataset.next) { openEx.e++; render(); window.scrollTo(0, 0); }
+  else if (t.dataset.donex) {
+    const day = dayKey(), s = setSlot(day, openEx.w, openEx.e); s.done = !s.done; saveDay(day); render();
+  }
   else if (t.id === "timerStop") stopTimer();
   else if (t.id === "startBtn") startSession();
   else if (t.dataset.del) {
@@ -396,26 +468,58 @@ document.addEventListener("click", e => {
   }
   else if (t.id === "sessionStop") stopSession();
   else if (t.id === "modalClose" || t.id === "modal") document.getElementById("modal").style.display = "none";
-});
-document.addEventListener("input", e => {
-  if (e.target.classList.contains("today")) {
-    const day = dayKey();
-    setSlot(day, current, e.target.dataset.e).today[e.target.dataset.s] = e.target.value; saveDay(day);
+  else if (!openEx && current !== "history" && t.closest("[data-open]")) { // нажатие на карточку открывает упражнение
+    listScroll = window.scrollY;
+    openEx = { w: current, e: +t.closest("[data-open]").dataset.open };
+    render(); window.scrollTo(0, 0);
   }
+});
+// Повторы и вес — два поля, но сохраняются как одна запись "15x30"
+document.addEventListener("input", e => {
+  const el = e.target;
+  if (!openEx || !el.classList.contains("inp")) return;
+  const get = k => (document.querySelector(`.inp[data-s="${el.dataset.s}"][data-k="${k}"]`).value || "").trim().replace(",", ".");
+  const r = get("r"), wt = get("w"), day = dayKey();
+  setSlot(day, openEx.w, openEx.e).today[el.dataset.s] = wt ? `${r}x${wt}` : r;
+  saveDay(day);
 });
 
 // ---------- Таймер отдыха ----------
-let tick = null;
+// Таймер считает от момента окончания (restEnd), а не по тикам: пока приложение свёрнуто,
+// время идёт, и при возвращении показывается верный остаток.
+let tick = null, restEnd = +lsGet("gym-rest") || 0;
 function startTimer(sec) {
-  stopTimer();
-  const box = document.getElementById("timer"), txt = document.getElementById("timerText");
-  let left = sec; box.style.display = "flex"; txt.textContent = "Отдых " + fmt(left);
-  tick = setInterval(() => {
-    left--; txt.textContent = "Отдых " + fmt(Math.max(left, 0));
-    if (left <= 0) { stopTimer(); if (tg) tg.HapticFeedback.notificationOccurred("success"); else navigator.vibrate && navigator.vibrate(300); }
-  }, 1000);
+  restEnd = Date.now() + sec * 1000;
+  lsSet("gym-rest", restEnd);
+  runTimer();
 }
-function stopTimer() { clearInterval(tick); document.getElementById("timer").style.display = "none"; }
+function runTimer() {
+  clearInterval(tick);
+  const box = document.getElementById("timer"), txt = document.getElementById("timerText");
+  const draw = () => {
+    const left = Math.ceil((restEnd - Date.now()) / 1000);
+    if (left <= 0) {
+      const late = -left; stopTimer();
+      if (late < 5) { // сигнал только если время закончилось «сейчас», а не давно
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success"); else if (navigator.vibrate) navigator.vibrate(300);
+      }
+      return;
+    }
+    txt.textContent = "Отдых " + fmt(left);
+  };
+  box.style.display = "flex"; draw();
+  if (restEnd) tick = setInterval(draw, 500);
+}
+function stopTimer() {
+  clearInterval(tick); restEnd = 0;
+  try { localStorage.removeItem("gym-rest"); } catch (e) {}
+  document.getElementById("timer").style.display = "none";
+}
+document.addEventListener("visibilitychange", () => { // вернулись в приложение — пересчитываем
+  if (document.hidden) return;
+  if (restEnd) runTimer();
+  if (sessionStart) drawSession();
+});
 
 // ---------- Секундомер всей тренировки ----------
 // Время старта хранится в памяти телефона, поэтому счёт не сбивается при закрытии приложения.
@@ -428,15 +532,19 @@ function drawSession() {
 }
 function runSession() {
   document.getElementById("session").style.display = "flex";
+  const sw = WORKOUTS.find(x => x.id === sessionWid);
+  document.getElementById("sessionName").textContent = sw ? "· " + sw.title : "";
   drawSession(); clearInterval(sessionTick); sessionTick = setInterval(drawSession, 1000);
 }
 function startSession() {
   sessionStart = Date.now(); sessionWid = current;
-  lsSet("gym-session", JSON.stringify({ t: sessionStart, w: sessionWid }));
+  const raw = JSON.stringify({ t: sessionStart, w: sessionWid });
+  lsSet("gym-session", raw);
+  if (cloud) cloud.setItem("session", raw, () => {}); // запасная копия: тренировка запомнится, даже если память телефона очистится
   runSession(); render();
 }
-function stopSession() {
-  if (!confirm("Завершить тренировку?")) return;
+function stopSession() { ask("Завершить тренировку?", doStopSession); }
+function doStopSession() {
   // записываем длительность в тот день и ту тренировку, где её начали
   const date = dateKey(new Date(sessionStart));
   const r = ((state[date] ??= {})[sessionWid] ??= {});
@@ -445,14 +553,27 @@ function stopSession() {
   const finished = WORKOUTS.find(x => x.id === sessionWid);
   clearInterval(sessionTick); sessionStart = 0; sessionWid = null;
   try { localStorage.removeItem("gym-session"); } catch (e) {}
+  if (cloud) cloud.removeItem("session", () => {});
   document.getElementById("session").style.display = "none";
-  current = "history"; render(); // после завершения показываем историю и итоги
+  current = "history"; openEx = null; render(); // после завершения показываем историю и итоги
   if (finished) showSummary(date, finished);
 }
 
+// После запуска тренировки приложение открывается сразу на ней, а не на первой вкладке
+if (sessionWid && WORKOUTS.some(x => x.id === sessionWid)) current = sessionWid;
 loadAll();
 render();
 if (sessionStart) runSession();
+if (restEnd > Date.now()) runTimer(); else if (restEnd) stopTimer();
+if (cloud && !sessionStart) cloud.getItem("session", (err, v) => { // если локальной записи нет — берём из облака
+  try {
+    const s = JSON.parse(v);
+    if (!s || !s.t || sessionStart) return;
+    sessionStart = s.t; sessionWid = s.w; lsSet("gym-session", v);
+    if (WORKOUTS.some(x => x.id === sessionWid)) current = sessionWid;
+    runSession(); render();
+  } catch (e) {}
+});
 </script>
 </body>
 </html>
