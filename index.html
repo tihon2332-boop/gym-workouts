@@ -18,8 +18,8 @@
   body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); padding-bottom: 90px; }
 
   header { background: var(--yellow); padding: 14px 16px; position: sticky; top: 0; z-index: 5; font-weight: 600; }
-  .tabs { display: flex; gap: 8px; margin-top: 10px; }
-  .tab { flex: 1; padding: 8px 4px; border-radius: 10px; border: 0; background: rgba(255,255,255,.55); font-size: 13px; font-weight: 600; }
+  .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 10px; }
+  .tab { padding: 8px 2px; border-radius: 10px; border: 0; background: rgba(255,255,255,.55); font-size: 12px; font-weight: 600; }
   .tab.active { background: #fff; }
 
   main { padding: 0 12px; }
@@ -48,6 +48,15 @@
   #timer { position: fixed; left: 12px; right: 12px; bottom: 12px; background: #222; color: #fff; border-radius: 14px; padding: 14px 18px; display: none; justify-content: space-between; align-items: center; font-size: 18px; font-weight: 700; z-index: 10; }
   #timer button { background: var(--yellow); border: 0; border-radius: 8px; padding: 8px 12px; font-weight: 700; }
   .empty { text-align: center; color: var(--muted); margin-top: 60px; }
+
+  details.hist { background: var(--card); border-radius: 14px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  details.hist summary { cursor: pointer; list-style: none; }
+  details.hist summary::-webkit-details-marker { display: none; }
+  .hist-title { font-weight: 700; font-size: 16px; }
+  .hist-sub { color: var(--muted); font-size: 14px; margin-top: 4px; }
+  .hist-ex { margin-top: 10px; font-size: 14px; }
+  .hist-ex b { display: block; font-weight: 600; }
+  .hist-ex span { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -69,6 +78,7 @@
 const WORKOUTS = [
   {
     id: "back-biceps",
+    prevDate: "20.05",
     tab: "Спина + бицепс",
     title: "Спина + бицепс",
     exercises: [
@@ -84,6 +94,7 @@ const WORKOUTS = [
   },
   {
     id: "chest-shoulders",
+    prevDate: "25.05",
     tab: "Грудь + плечи",
     title: "Грудь + плечи",
     exercises: [
@@ -100,6 +111,7 @@ const WORKOUTS = [
   },
   {
     id: "legs-chest",
+    prevDate: "22.05",
     tab: "Ноги + грудь",
     title: "Ноги + грудь",
     exercises: [
@@ -119,18 +131,69 @@ const WORKOUTS = [
 const tg = window.Telegram && Telegram.WebApp;
 if (tg) { tg.ready(); tg.expand(); }
 
-// ---------- Сохранение (localStorage — память браузера внутри телефона) ----------
-const KEY = "gym-state-v1";
+// ---------- Сохранение ----------
+// Каждый день — отдельная запись "d_ГГГГ-ММ-ДД":
+//   { _u: время изменения, <id тренировки>: { ex: { номер упражнения: { done, today[] } }, dur: секунды } }
+// В Telegram пишем в облако Telegram (CloudStorage) — данные общие для всех устройств.
+// Копия в localStorage (память телефона) — запасная.
+const cloud = tg && tg.initData && tg.isVersionAtLeast && tg.isVersionAtLeast("6.9") ? tg.CloudStorage : null;
 let state = {};
-try { state = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+const dateKey = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const dayKey = () => dateKey(new Date());
+
+function mergeDay(date, raw) {
+  let d = null;
+  try { d = JSON.parse(raw); } catch (e) {}
+  if (d && (!state[date] || (d._u || 0) > (state[date]._u || 0))) { state[date] = d; return true; }
+  return false;
+}
+const cloudTimers = {};
+function saveDay(date) {
+  state[date]._u = Date.now();
+  const raw = JSON.stringify(state[date]);
+  lsSet("d_" + date, raw);
+  if (cloud) { // не чаще раза в 0.6 с, чтобы не слать запрос на каждую букву
+    clearTimeout(cloudTimers[date]);
+    cloudTimers[date] = setTimeout(() => cloud.setItem("d_" + date, raw, () => {}), 600);
+  }
+}
+function loadAll() {
+  for (let i = 0; i < (localStorage.length || 0); i++) {
+    try { const k = localStorage.key(i); if (k.startsWith("d_")) mergeDay(k.slice(2), localStorage.getItem(k)); } catch (e) {}
+  }
+  if (!cloud) return;
+  cloud.getKeys((err, keys) => {
+    keys = err ? [] : (keys || []).filter(k => k.startsWith("d_"));
+    const finish = vals => {
+      let changed = false;
+      keys.forEach(k => { if (vals[k] && mergeDay(k.slice(2), vals[k])) { lsSet(k, vals[k]); changed = true; } });
+      // то, чего нет в облаке или что новее — отправляем туда
+      Object.keys(state).forEach(date => {
+        let c = null; try { c = JSON.parse(vals["d_" + date]); } catch (e) {}
+        if (!c || (c._u || 0) < (state[date]._u || 0)) cloud.setItem("d_" + date, JSON.stringify(state[date]), () => {});
+      });
+      if (changed && !(document.activeElement && document.activeElement.tagName === "INPUT")) render();
+    };
+    if (!keys.length) finish({}); else cloud.getItems(keys, (e2, vals) => finish(e2 ? {} : vals));
+  });
+}
 
 let current = WORKOUTS[0].id;
-const dayKey = () => new Date().toISOString().slice(0, 10);
-function slot(wid, ei) {
-  const d = (state[dayKey()] ??= {});
-  const w = (d[wid] ??= {});
-  return (w[ei] ??= { done: false, today: [] });
+const getSlot = (date, wid, ei) => (state[date] && state[date][wid] && state[date][wid].ex && state[date][wid].ex[ei]) || { done: false, today: [] };
+function setSlot(date, wid, ei) {
+  const w = ((state[date] ??= {})[wid] ??= {});
+  return ((w.ex ??= {})[ei] ??= { done: false, today: [] });
+}
+// «Прошлый раз»: последняя запись этого упражнения до сегодняшнего дня, а если её нет — результаты из файла
+function prevFor(w, ei) {
+  const today = dayKey();
+  for (const d of Object.keys(state).filter(d => d < today).sort().reverse()) {
+    const t = getSlot(d, w.id, ei).today;
+    if (t.some(v => v)) return { vals: t, label: d.slice(8) + "." + d.slice(5, 7) };
+  }
+  return { vals: w.exercises[ei].prev, label: w.prevDate };
 }
 
 // ---------- Отрисовка ----------
@@ -138,12 +201,36 @@ const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&
 const fmt = s => Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
 const weekdays = ["вс","пн","вт","ср","чт","пт","сб"];
 
+const fmtLong = s => s >= 3600 ? `${Math.floor(s / 3600)} ч ${String(Math.floor(s / 60) % 60).padStart(2, "0")} мин` : `${Math.max(1, Math.round(s / 60))} мин`;
+
+function renderHistory() {
+  const items = [];
+  Object.keys(state).sort().reverse().forEach(date => WORKOUTS.forEach(w => {
+    const r = state[date][w.id];
+    if (!r) return;
+    const done = w.exercises.map((ex, ei) => ({ ex, s: getSlot(date, w.id, ei) }))
+      .filter(x => x.s.done || x.s.today.some(v => v));
+    if (done.length || r.dur) items.push({ date, w, r, done });
+  }));
+  let html = `<h1>История</h1><div class="date">Прошедшие тренировки</div>`;
+  if (!items.length) return html + `<div class="empty">Пока пусто. Заверши первую тренировку, и она появится здесь.</div>`;
+  return html + items.map(({ date, w, r, done }) => {
+    const d = new Date(date + "T12:00:00");
+    const sub = [`${done.filter(x => x.s.done).length} из ${w.exercises.length} упр.`, r.dur ? fmtLong(r.dur) : ""].filter(Boolean).join(" · ");
+    const list = done.map(x => `<div class="hist-ex"><b>${esc(x.ex.name)}</b><span>${x.s.today.filter(v => v).map(esc).join(", ") || "без записи"}</span></div>`).join("");
+    return `<details class="hist"><summary><div class="hist-title">${esc(w.title)}</div>
+      <div class="hist-sub">${weekdays[d.getDay()]} ${d.toLocaleDateString("ru-RU")} · ${sub}</div></summary>${list}</details>`;
+  }).join("");
+}
+
 function render() {
-  document.getElementById("tabs").innerHTML = WORKOUTS.map(w =>
+  document.getElementById("tabs").innerHTML = WORKOUTS.concat([{ id: "history", tab: "История" }]).map(w =>
     `<button class="tab ${w.id === current ? "active" : ""}" data-w="${w.id}">${esc(w.tab)}</button>`).join("");
 
+  if (current === "history") { document.getElementById("app").innerHTML = renderHistory(); return; }
+
   const w = WORKOUTS.find(x => x.id === current);
-  const now = new Date();
+  const now = new Date(), day = dayKey();
   const dateStr = `${weekdays[now.getDay()]} ${now.toLocaleDateString("ru-RU")}`;
   let html = `<h1>${esc(w.title)}</h1><div class="date">${dateStr}</div>`;
   if (!sessionStart) html += `<button class="start" id="startBtn">Начать тренировку!</button>`;
@@ -152,13 +239,14 @@ function render() {
     html += `<div class="empty">Эта тренировка пока пустая</div>`;
   } else {
     w.exercises.forEach((ex, ei) => {
-      const s = slot(w.id, ei);
+      const s = getSlot(day, w.id, ei);
+      const prev = prevFor(w, ei);
       const rows = ex.reps.map((r, si) => `
         <tr>
           <td class="n">${si + 1}</td>
           <td>${r}</td>
           <td><button class="rest" data-rest="${ex.rest}">${fmt(ex.rest)}</button></td>
-          <td class="prev">${ex.prev[si] || ""}</td>
+          <td class="prev">${esc(prev.vals[si] || "")}</td>
           <td><input class="today" inputmode="decimal" placeholder="15x20" value="${esc(s.today[si] || "")}" data-e="${ei}" data-s="${si}"></td>
         </tr>`).join("");
       html += `
@@ -168,7 +256,7 @@ function render() {
             <button class="check" data-e="${ei}">${s.done ? "✓" : ""}</button>
           </div>
           ${ex.reps.length ? `<table>
-            <tr><th>Подход</th><th>Повторения</th><th>Отдых</th><th>Прошлый раз</th><th>Сегодня</th></tr>
+            <tr><th>Подход</th><th>Повторения</th><th>Отдых</th><th>${prev.label}</th><th>Сегодня</th></tr>
             ${rows}
           </table>` : ""}
         </section>`;
@@ -182,7 +270,7 @@ document.addEventListener("click", e => {
   const t = e.target;
   if (t.dataset.w) { current = t.dataset.w; render(); }
   else if (t.classList.contains("check")) {
-    const s = slot(current, t.dataset.e); s.done = !s.done; save(); render();
+    const day = dayKey(), s = setSlot(day, current, t.dataset.e); s.done = !s.done; saveDay(day); render();
   }
   else if (t.dataset.rest) startTimer(+t.dataset.rest);
   else if (t.id === "timerStop") stopTimer();
@@ -191,7 +279,8 @@ document.addEventListener("click", e => {
 });
 document.addEventListener("input", e => {
   if (e.target.classList.contains("today")) {
-    slot(current, e.target.dataset.e).today[e.target.dataset.s] = e.target.value; save();
+    const day = dayKey();
+    setSlot(day, current, e.target.dataset.e).today[e.target.dataset.s] = e.target.value; saveDay(day);
   }
 });
 
@@ -210,8 +299,8 @@ function stopTimer() { clearInterval(tick); document.getElementById("timer").sty
 
 // ---------- Секундомер всей тренировки ----------
 // Время старта хранится в памяти телефона, поэтому счёт не сбивается при закрытии приложения.
-let sessionStart = +localStorage.getItem("gym-session-start") || 0;
-let sessionTick = null;
+let sessionStart = 0, sessionWid = null, sessionTick = null;
+try { const s = JSON.parse(lsGet("gym-session")); if (s && s.t) { sessionStart = s.t; sessionWid = s.w; } } catch (e) {}
 function drawSession() {
   const s = Math.floor((Date.now() - sessionStart) / 1000);
   document.getElementById("sessionTime").textContent =
@@ -222,17 +311,24 @@ function runSession() {
   drawSession(); clearInterval(sessionTick); sessionTick = setInterval(drawSession, 1000);
 }
 function startSession() {
-  sessionStart = Date.now();
-  try { localStorage.setItem("gym-session-start", sessionStart); } catch (e) {}
+  sessionStart = Date.now(); sessionWid = current;
+  lsSet("gym-session", JSON.stringify({ t: sessionStart, w: sessionWid }));
   runSession(); render();
 }
 function stopSession() {
   if (!confirm("Завершить тренировку?")) return;
-  clearInterval(sessionTick); sessionStart = 0;
-  try { localStorage.removeItem("gym-session-start"); } catch (e) {}
-  document.getElementById("session").style.display = "none"; render();
+  // записываем длительность в тот день и ту тренировку, где её начали
+  const date = dateKey(new Date(sessionStart));
+  const r = ((state[date] ??= {})[sessionWid] ??= {});
+  r.dur = (r.dur || 0) + Math.floor((Date.now() - sessionStart) / 1000);
+  saveDay(date);
+  clearInterval(sessionTick); sessionStart = 0; sessionWid = null;
+  try { localStorage.removeItem("gym-session"); } catch (e) {}
+  document.getElementById("session").style.display = "none";
+  current = "history"; render(); // после завершения показываем историю
 }
 
+loadAll();
 render();
 if (sessionStart) runSession();
 </script>
