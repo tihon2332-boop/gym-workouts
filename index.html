@@ -49,6 +49,18 @@
   #timer button { background: var(--yellow); border: 0; border-radius: 8px; padding: 8px 12px; font-weight: 700; }
   .empty { text-align: center; color: var(--muted); margin-top: 60px; }
 
+  #modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 20; align-items: flex-end; justify-content: center; }
+  .sheet { background: var(--bg); width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto; border-radius: 18px 18px 0 0; padding: 18px 14px 24px; }
+  .sheet h2 { margin: 0; font-size: 22px; }
+  .an-sub { color: var(--muted); margin: 2px 0 12px; }
+  .an-sum { background: var(--card); border-radius: 12px; padding: 12px; margin-bottom: 10px; font-size: 15px; line-height: 1.6; }
+  .an-row { background: var(--card); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; font-size: 14px; line-height: 1.5; }
+  .an-row b { display: block; font-weight: 600; }
+  .an-empty { color: var(--muted); font-size: 14px; margin: 8px 0; }
+  .up { color: var(--done); font-weight: 600; }
+  .down { color: #d33; font-weight: 600; }
+  .same { color: var(--muted); }
+  details.hist .an-sum, details.hist .an-row { background: #f7f7f7; }
   details.hist { background: var(--card); border-radius: 14px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
   details.hist summary { cursor: pointer; list-style: none; }
   details.hist summary::-webkit-details-marker { display: none; }
@@ -69,6 +81,7 @@
 
 <main id="app"></main>
 
+<div id="modal"></div>
 <div id="timer"><span id="timerText">Отдых 0:00</span><button id="timerStop">Пропустить</button></div>
 
 <script>
@@ -82,14 +95,14 @@ const WORKOUTS = [
     tab: "Спина + бицепс",
     title: "Спина + бицепс",
     exercises: [
-      { name: "Гиперэкстензия (угловая) (руки на груди) \\\\П\\\\", reps: ["15","15","15","15"], rest: 60, prev: ["15x5","15x5","15x5","15x5"] },
-      { name: "Подтягивания в гравитроне широким хватом", reps: ["12","12","12","12"], rest: 60, prev: ["15x33","15x33","15x33","15x33"] },
-      { name: "Тяга вертикального блока паралельным хватом (к груди) \\\\Н\\\\", reps: ["15","15","15","15"], rest: 60, prev: ["15x45","15x40","15x40","15x40"] },
-      { name: "Тяга гантели к поясу, с опорой на скамью", reps: ["12","12","12"], rest: 60, prev: ["12x17.5","12x17.5","12x17.5"] },
-      { name: "Вертикальная тяга в хаммере 1-й рукой \\\\П\\\\", reps: ["12-15","12-15","12-15"], rest: 30, prev: ["15x22.5","15x25","15x25"] },
-      { name: "Сгибание одной руки на бицепс с гантелью (в скамье Л.Скотта)", reps: ["12-15","12-15","12-15","12-15"], rest: 60, prev: ["15x10","12x12.5","16x10","16x10"] },
-      { name: "Сгибание рук на бицепс стоя, со штангой (хватом снизу)", reps: ["12","12","10","10"], rest: 60, prev: ["12x25","11x25","10x25","10x25"] },
-      { name: "Пресс скручивания с опорой на руки", reps: [], rest: 60, prev: [] } // подходы допишем по фото
+      { name: "Гиперэкстензия (угловая) (руки на груди) \\\\П\\\\", reps: ["15","15","15","15"], rest: 120, prev: ["15x5","15x5","15x5","15x5"] },
+      { name: "Подтягивания в гравитроне широким хватом", reps: ["12","12","12","12"], rest: 120, prev: ["15x33","15x33","15x33","15x33"] },
+      { name: "Тяга вертикального блока паралельным хватом (к груди) \\\\Н\\\\", reps: ["15","15","15","15"], rest: 120, prev: ["15x45","15x40","15x40","15x40"] },
+      { name: "Тяга гантели к поясу, с опорой на скамью", reps: ["12","12","12"], rest: 120, prev: ["12x17.5","12x17.5","12x17.5"] },
+      { name: "Вертикальная тяга в хаммере 1-й рукой \\\\П\\\\", reps: ["12-15","12-15","12-15"], rest: 120, prev: ["15x22.5","15x25","15x25"] },
+      { name: "Сгибание одной руки на бицепс с гантелью (в скамье Л.Скотта)", reps: ["12-15","12-15","12-15","12-15"], rest: 120, prev: ["15x10","12x12.5","16x10","16x10"] },
+      { name: "Сгибание рук на бицепс стоя, со штангой (хватом снизу)", reps: ["12","12","10","10"], rest: 120, prev: ["12x25","11x25","10x25","10x25"] },
+      { name: "Пресс скручивания с опорой на руки", reps: [], rest: 120, prev: [] } // подходы допишем по фото
     ]
   },
   {
@@ -98,15 +111,15 @@ const WORKOUTS = [
     tab: "Грудь + плечи",
     title: "Грудь + плечи",
     exercises: [
-      { name: "Жим штанги лежа (гориз. скамья) \\\\П\\\\", reps: ["12","12","10","10"], rest: 60, prev: ["12x60","12x65","10x65","10x65"] },
-      { name: "Жим в \"Хаммере\" (НИЗ груди) \\\\П\\\\", reps: ["15","15","15","15"], rest: 60, prev: ["15x70","15x75","15x75","15x75"] },
-      { name: "Жим гантелей лежа в наклонной скамье", reps: ["12","12","10","10"], rest: 60, prev: ["12x22.5","12x22.5","10x20","10x20"] },
-      { name: "Разведение гантелей лежа на наклонной скамье", reps: ["15","15","12","12"], rest: 60, prev: ["15x10","13x12.5","12x12.5","12x12.5"] },
-      { name: "Жим на плечи (лежа в тренажере) \\\\П\\\\", reps: ["12","12","12","12"], rest: 60, prev: ["11x35","11x30","11x30","10x30"] },
-      { name: "Протяжка к груди в тренажере \"Смитта\" (широким хватом) \\\\П\\\\", reps: ["15","15","15","15"], rest: 60, prev: ["15x30","15x30","15x30","15x30"] },
-      { name: "Разведение гантелей стоя (на плечи)", reps: ["20","20","20","20"], rest: 60, prev: ["20x7","20x7","20x7","20x7"] },
-      { name: "Жим гантелей сидя (на плечи)", reps: ["12","12","10","10"], rest: 60, prev: ["12x15","12x15","10x15","10x15"] },
-      { name: "Пресс (махи 2 ноги вместе, лежа)", reps: [], rest: 60, prev: [] } // подходы допишем по фото
+      { name: "Жим штанги лежа (гориз. скамья) \\\\П\\\\", reps: ["12","12","10","10"], rest: 120, prev: ["12x60","12x65","10x65","10x65"] },
+      { name: "Жим в \"Хаммере\" (НИЗ груди) \\\\П\\\\", reps: ["15","15","15","15"], rest: 120, prev: ["15x70","15x75","15x75","15x75"] },
+      { name: "Жим гантелей лежа в наклонной скамье", reps: ["12","12","10","10"], rest: 120, prev: ["12x22.5","12x22.5","10x20","10x20"] },
+      { name: "Разведение гантелей лежа на наклонной скамье", reps: ["15","15","12","12"], rest: 120, prev: ["15x10","13x12.5","12x12.5","12x12.5"] },
+      { name: "Жим на плечи (лежа в тренажере) \\\\П\\\\", reps: ["12","12","12","12"], rest: 120, prev: ["11x35","11x30","11x30","10x30"] },
+      { name: "Протяжка к груди в тренажере \"Смитта\" (широким хватом) \\\\П\\\\", reps: ["15","15","15","15"], rest: 120, prev: ["15x30","15x30","15x30","15x30"] },
+      { name: "Разведение гантелей стоя (на плечи)", reps: ["20","20","20","20"], rest: 120, prev: ["20x7","20x7","20x7","20x7"] },
+      { name: "Жим гантелей сидя (на плечи)", reps: ["12","12","10","10"], rest: 120, prev: ["12x15","12x15","10x15","10x15"] },
+      { name: "Пресс (махи 2 ноги вместе, лежа)", reps: [], rest: 120, prev: [] } // подходы допишем по фото
     ]
   },
   {
@@ -115,14 +128,14 @@ const WORKOUTS = [
     tab: "Ноги + грудь",
     title: "Ноги + грудь",
     exercises: [
-      { name: "Жим ногами в \"платформе\" (паралельная постановка стоп) \\\\П\\\\", reps: ["12","12","12","12"], rest: 60, prev: ["12x50","12x55","12x55","12x55"] },
-      { name: "Сгибание ног лежа (в тренажере)", reps: ["20","20","20","20"], rest: 60, prev: ["20x30","20x30","20x30","20x30"] },
-      { name: "Разгибание ног (сидя в тренажере)", reps: ["20","20","20","20"], rest: 60, prev: ["20x40","20x40","20x40","20x40"] },
-      { name: "Жим штанги лежа на наклонной скамье в тренажере Смита \\\\П\\\\", reps: ["12","12","10","10"], rest: 60, prev: ["12x50","12x50","10x50","10x50"] },
-      { name: "Жим гантелей лежа в наклонной скамье", reps: ["12","12","10","10"], rest: 60, prev: ["12x22.5","12x22.5","8x22.5","10x22.5"] },
-      { name: "Сведение рук в кроссовере стоя, с верхнего блока (верхнее положение блока) \\\\Н\\\\", reps: ["15","15","15"], rest: 60, prev: ["15x12.5","15x12.5","15x12.5"] },
-      { name: "Сведение рук в тренажере ПЕК-ДЭК \\\\Н\\\\", reps: ["15","15","15"], rest: 60, prev: ["15x40","15x40","15x45"] },
-      { name: "Пресс - скручивания в тренажере", reps: [], rest: 60, prev: [] } // название обрезано на скриншоте, подходы допишем
+      { name: "Жим ногами в \"платформе\" (паралельная постановка стоп) \\\\П\\\\", reps: ["12","12","12","12"], rest: 120, prev: ["12x50","12x55","12x55","12x55"] },
+      { name: "Сгибание ног лежа (в тренажере)", reps: ["20","20","20","20"], rest: 120, prev: ["20x30","20x30","20x30","20x30"] },
+      { name: "Разгибание ног (сидя в тренажере)", reps: ["20","20","20","20"], rest: 120, prev: ["20x40","20x40","20x40","20x40"] },
+      { name: "Жим штанги лежа на наклонной скамье в тренажере Смита \\\\П\\\\", reps: ["12","12","10","10"], rest: 120, prev: ["12x50","12x50","10x50","10x50"] },
+      { name: "Жим гантелей лежа в наклонной скамье", reps: ["12","12","10","10"], rest: 120, prev: ["12x22.5","12x22.5","8x22.5","10x22.5"] },
+      { name: "Сведение рук в кроссовере стоя, с верхнего блока (верхнее положение блока) \\\\Н\\\\", reps: ["15","15","15"], rest: 120, prev: ["15x12.5","15x12.5","15x12.5"] },
+      { name: "Сведение рук в тренажере ПЕК-ДЭК \\\\Н\\\\", reps: ["15","15","15"], rest: 120, prev: ["15x40","15x40","15x45"] },
+      { name: "Пресс - скручивания в тренажере", reps: [], rest: 120, prev: [] } // название обрезано на скриншоте, подходы допишем
     ]
   }
 ];
@@ -239,6 +252,56 @@ const weekdays = ["вс","пн","вт","ср","чт","пт","сб"];
 
 const fmtLong = s => s >= 3600 ? `${Math.floor(s / 3600)} ч ${String(Math.floor(s / 60) % 60).padStart(2, "0")} мин` : `${Math.max(1, Math.round(s / 60))} мин`;
 
+// ---------- Аналитика: сравнение с предыдущей такой же тренировкой ----------
+// Подход записывается как "повторения x вес" (15x30) или просто "повторения".
+function parseSet(v) {
+  const m = /^\s*(\d+)\s*[xх×*]\s*(\d+(?:[.,]\d+)?)\s*$/i.exec(v || "");
+  if (m) return { r: +m[1], w: parseFloat(m[2].replace(",", ".")) };
+  const n = /^\s*(\d+)\s*$/.exec(v || "");
+  return n ? { r: +n[1], w: 0 } : null;
+}
+function exStats(today) { // reps — всего повторений, vol — объём (повторения × вес), max — самый тяжёлый подход
+  let reps = 0, vol = 0, max = 0;
+  today.forEach(v => { const s = parseSet(v); if (s) { reps += s.r; vol += s.r * s.w; max = Math.max(max, s.w); } });
+  return { reps, vol, max };
+}
+const hasData = (date, wid) => Object.values((state[date][wid] || {}).ex || {}).some(s => (s.today || []).some(v => v));
+const prevDateFor = (date, wid) => Object.keys(state).filter(d => d < date && state[d][wid] && hasData(d, wid)).sort().pop();
+const fmtN = n => (Math.round(n * 10) / 10).toLocaleString("ru-RU");
+const arrow = (d, unit) => d > 0 ? `<span class="up">▲ +${fmtN(d)}${unit}</span>` : d < 0 ? `<span class="down">▼ ${fmtN(d)}${unit}</span>` : `<span class="same">без изменений</span>`;
+
+function analysisHtml(date, w) {
+  const pd = prevDateFor(date, w.id);
+  if (!pd) return `<div class="an-empty">Сравнивать пока не с чем: это первая записанная тренировка.</div>`;
+  let vNow = 0, vPrev = 0, better = 0, cmp = 0;
+  const rows = [];
+  w.exercises.forEach((ex, ei) => {
+    const a = exStats(getSlot(date, w.id, ei).today), b = exStats(getSlot(pd, w.id, ei).today);
+    if (!a.reps || !b.reps) return;
+    cmp++; vNow += a.vol; vPrev += b.vol;
+    const byVol = a.vol || b.vol;
+    const d = byVol ? a.vol - b.vol : a.reps - b.reps;
+    if (d > 0 || a.max > b.max) better++;
+    rows.push(`<div class="an-row"><b>${esc(ex.name)}</b>
+      <div>${byVol ? `Объём ${fmtN(a.vol)} кг ${arrow(d, " кг")}` : `Повторений ${a.reps} ${arrow(d, "")}`}</div>
+      ${a.max || b.max ? `<div>Макс. вес ${fmtN(a.max)} кг ${arrow(a.max - b.max, " кг")}</div>` : ""}</div>`);
+  });
+  const pdLabel = pd.slice(8) + "." + pd.slice(5, 7);
+  if (!cmp) return `<div class="an-empty">Нет общих упражнений с тренировкой от ${pdLabel}. Впиши результаты в колонку «Сегодня».</div>`;
+  const pct = vPrev ? Math.round((vNow - vPrev) / vPrev * 100) : 0;
+  const durNow = (state[date][w.id] || {}).dur, durPrev = (state[pd][w.id] || {}).dur;
+  return `<div class="an-sum">Сравнение с тренировкой от <b>${pdLabel}</b><br>
+    Улучшено упражнений: <b>${better} из ${cmp}</b><br>
+    ${vPrev ? `Общий объём: <b>${fmtN(vNow)} кг</b> ${arrow(pct, "%")}<br>` : ""}
+    ${durNow && durPrev ? `Время: <b>${fmtLong(durNow)}</b> (в прошлый раз ${fmtLong(durPrev)})` : ""}</div>${rows.join("")}`;
+}
+function showSummary(date, w) {
+  const m = document.getElementById("modal");
+  m.innerHTML = `<div class="sheet"><h2>Итоги тренировки</h2><div class="an-sub">${esc(w.title)}</div>
+    ${analysisHtml(date, w)}<button class="start" id="modalClose" style="margin-top:8px">Закрыть</button></div>`;
+  m.style.display = "flex";
+}
+
 function renderHistory() {
   const items = [];
   Object.keys(state).sort().reverse().forEach(date => WORKOUTS.forEach(w => {
@@ -254,7 +317,7 @@ function renderHistory() {
     const d = new Date(date + "T12:00:00");
     const sub = [done.length ? `${done.filter(x => x.s.done).length} из ${w.exercises.length} упр.` : "", r.dur ? fmtLong(r.dur) : ""].filter(Boolean).join(" · ");
     const note = r.note ? `<div class="hist-ex"><b>Заметки</b><span>${esc(r.note)}</span></div>` : "";
-    const list = note + done.map(x => `<div class="hist-ex"><b>${esc(x.ex.name)}</b><span>${x.s.today.filter(v => v).map(esc).join(", ") || "без записи"}</span></div>`).join("");
+    const list = note + (done.length ? analysisHtml(date, w) : "") + done.map(x => `<div class="hist-ex"><b>${esc(x.ex.name)}</b><span>${x.s.today.filter(v => v).map(esc).join(", ") || "без записи"}</span></div>`).join("");
     return `<details class="hist"><summary><div class="hist-title">${esc(w.title)}</div>
       <div class="hist-sub">${weekdays[d.getDay()]} ${d.toLocaleDateString("ru-RU")}${sub ? " · " + sub : ""}</div></summary>${list}</details>`;
   }).join("");
@@ -313,6 +376,7 @@ document.addEventListener("click", e => {
   else if (t.id === "timerStop") stopTimer();
   else if (t.id === "startBtn") startSession();
   else if (t.id === "sessionStop") stopSession();
+  else if (t.id === "modalClose" || t.id === "modal") document.getElementById("modal").style.display = "none";
 });
 document.addEventListener("input", e => {
   if (e.target.classList.contains("today")) {
@@ -359,10 +423,12 @@ function stopSession() {
   const r = ((state[date] ??= {})[sessionWid] ??= {});
   r.dur = (r.dur || 0) + Math.floor((Date.now() - sessionStart) / 1000);
   saveDay(date);
+  const finished = WORKOUTS.find(x => x.id === sessionWid);
   clearInterval(sessionTick); sessionStart = 0; sessionWid = null;
   try { localStorage.removeItem("gym-session"); } catch (e) {}
   document.getElementById("session").style.display = "none";
-  current = "history"; render(); // после завершения показываем историю
+  current = "history"; render(); // после завершения показываем историю и итоги
+  if (finished) showSummary(date, finished);
 }
 
 loadAll();
