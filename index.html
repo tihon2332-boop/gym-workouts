@@ -105,6 +105,9 @@
 // ---------- Данные тренировок ----------
 // sets: прошлый результат "повторения x вес" для каждого подхода.
 // reps — сколько повторений нужно, rest — отдых в секундах.
+// Беговая дорожка: два этапа, у каждого время (мин) и скорость (км/ч). Записывается как "время x скорость".
+// В данных стоит последним (чтобы не сбить номера уже сохранённых упражнений), а показывается первым.
+const CARDIO = { name: "Бег на беговой дорожке", cardio: true, reps: ["Ходьба", "Бег"], rest: 0, prev: [] };
 const WORKOUTS = [
   {
     id: "back-biceps",
@@ -119,7 +122,8 @@ const WORKOUTS = [
       { name: "Вертикальная тяга в хаммере 1-й рукой \\\\П\\\\", reps: ["12-15","12-15","12-15"], rest: 120, prev: ["15x22.5","15x25","15x25"] },
       { name: "Сгибание одной руки на бицепс с гантелью (в скамье Л.Скотта)", reps: ["12-15","12-15","12-15","12-15"], rest: 120, prev: ["15x10","12x12.5","16x10","16x10"] },
       { name: "Сгибание рук на бицепс стоя, со штангой (хватом снизу)", reps: ["12","12","10","10"], rest: 120, prev: ["12x25","11x25","10x25","10x25"] },
-      { name: "Пресс скручивания с опорой на руки", reps: [], rest: 120, prev: [] } // подходы допишем по фото
+      { name: "Пресс скручивания с опорой на руки", reps: ["15-20","15-20","15-20","15-20"], rest: 120, prev: [] },
+      CARDIO
     ]
   },
   {
@@ -136,7 +140,8 @@ const WORKOUTS = [
       { name: "Протяжка к груди в тренажере \"Смитта\" (широким хватом) \\\\П\\\\", reps: ["15","15","15","15"], rest: 120, prev: ["15x30","15x30","15x30","15x30"] },
       { name: "Разведение гантелей стоя (на плечи)", reps: ["20","20","20","20"], rest: 120, prev: ["20x7","20x7","20x7","20x7"] },
       { name: "Жим гантелей сидя (на плечи)", reps: ["12","12","10","10"], rest: 120, prev: ["12x15","12x15","10x15","10x15"] },
-      { name: "Пресс (махи 2 ноги вместе, лежа)", reps: [], rest: 120, prev: [] } // подходы допишем по фото
+      { name: "Пресс (махи 2 ноги вместе, лежа)", reps: ["15-20","15-20","15-20","15-20"], rest: 120, prev: [] },
+      CARDIO
     ]
   },
   {
@@ -152,7 +157,8 @@ const WORKOUTS = [
       { name: "Жим гантелей лежа в наклонной скамье", reps: ["12","12","10","10"], rest: 120, prev: ["12x22.5","12x22.5","8x22.5","10x22.5"] },
       { name: "Сведение рук в кроссовере стоя, с верхнего блока (верхнее положение блока) \\\\Н\\\\", reps: ["15","15","15"], rest: 120, prev: ["15x12.5","15x12.5","15x12.5"] },
       { name: "Сведение рук в тренажере ПЕК-ДЭК \\\\Н\\\\", reps: ["15","15","15"], rest: 120, prev: ["15x40","15x40","15x45"] },
-      { name: "Пресс - скручивания в тренажере", reps: [], rest: 120, prev: [] } // название обрезано на скриншоте, подходы допишем
+      { name: "Пресс - скручивания в тренажере", reps: ["15-20","15-20","15-20","15-20"], rest: 120, prev: [] },
+      CARDIO
     ]
   }
 ];
@@ -193,12 +199,13 @@ function saveDay(date) {
   }
 }
 // Уже проведённые тренировки, внесённые вручную. Подставляются, только если за эту дату записи ещё нет.
+// _seed — версия набора: при изменении набора записи, которые ты не правил (_u <= 2), обновляются.
 const SEED = {
   "2026-10-18": { "back-biceps": { logged: true } },
-  "2026-10-23": { "back-biceps": { note: "Ходьба 7 мин, бег 3 мин" } },
+  "2026-10-23": { "back-biceps": { ex: { 8: { done: true, today: ["7", "3"] } } } },
   "2026-10-28": { "back-biceps": {
-    note: "Ходьба 6,5 мин, бег 3,5 мин",
     ex: {
+      8: { done: true, today: ["6.5", "3.5"] },
       0: { done: true, today: ["15x5", "15x5", "15x0", "15x0"] },
       1: { done: true, today: ["12", "12", "12", "12"] },
       2: { done: true, today: ["15x30", "15x30", "12x35", "12x35"] },
@@ -208,10 +215,11 @@ const SEED = {
       6: { done: true, today: ["12x20", "12x20", "10x20", "10"] }
     }
   } },
-  "2026-10-21": { "chest-shoulders": { note: "Ходьба 7 мин, бег 3 мин" } },
+  "2026-10-21": { "chest-shoulders": { ex: { 9: { done: true, today: ["7", "3"] } } } },
   "2026-10-26": { "chest-shoulders": {
-    note: "Ходьба 6,5 мин, бег 3,5 мин. Жим в Хаммере: высота 8",
+    note: "Жим в Хаммере: высота 8",
     ex: {
+      9: { done: true, today: ["6.5", "3.5"] },
       0: { done: true, today: ["10x40", "10", "10", "10"] },
       1: { done: true, today: ["15x30", "15x35", "15x40", "15x45"] },
       2: { done: true, today: ["12x12.5", "12x12.5", "10x12.5", "10x12.5"] },
@@ -228,8 +236,9 @@ function loadAll() {
     try { const k = localStorage.key(i); if (k.startsWith("d_")) mergeDay(k.slice(2), localStorage.getItem(k)); } catch (e) {}
   }
   Object.keys(SEED).forEach(date => {
-    if (state[date]) return;
-    state[date] = Object.assign({ _u: 1 }, SEED[date]);
+    const s = state[date];
+    if (s && !((s._u || 0) <= 2 && s._seed !== 2)) return; // есть твоя запись или актуальный набор
+    state[date] = Object.assign({ _u: 2, _seed: 2 }, SEED[date]);
     lsSet("d_" + date, JSON.stringify(state[date]));
   });
   if (!cloud) return;
@@ -286,7 +295,21 @@ function exStats(today) { // reps — всего повторений, vol — �
   today.forEach(v => { const s = parseSet(v); if (s) { reps += s.r; vol += s.r * s.w; max = Math.max(max, s.w); } });
   return { reps, vol, max };
 }
-const hasData = (date, wid) => Object.values((state[date][wid] || {}).ex || {}).some(s => (s.today || []).some(v => v));
+// Порядок показа: беговая дорожка первой, дальше как в списке
+const orderOf = w => {
+  const idx = w.exercises.map((_, i) => i), c = idx.filter(i => w.exercises[i].cardio);
+  return c.concat(idx.filter(i => !w.exercises[i].cardio));
+};
+// "7x5.5" -> "7 мин · 5.5 км/ч"
+const fmtCardio = v => {
+  const s = splitSet(v);
+  return s.r ? `${s.r} мин` + (s.w ? ` · ${s.w} км/ч` : "") : s.w ? `${s.w} км/ч` : "";
+};
+// Есть ли в тот день силовые результаты (одно кардио тренировкой для сравнения не считается)
+const hasData = (date, wid) => {
+  const w = WORKOUTS.find(x => x.id === wid);
+  return Object.entries((state[date][wid] || {}).ex || {}).some(([i, s]) => !(w && w.exercises[i] && w.exercises[i].cardio) && (s.today || []).some(v => v));
+};
 const prevDateFor = (date, wid) => Object.keys(state).filter(d => d < date && state[d][wid] && hasData(d, wid)).sort().pop();
 const fmtN = n => (Math.round(n * 10) / 10).toLocaleString("ru-RU");
 const arrow = (d, unit) => d > 0 ? `<span class="up">▲ +${fmtN(d)}${unit}</span>` : d < 0 ? `<span class="down">▼ ${fmtN(d)}${unit}</span>` : `<span class="same">без изменений</span>`;
@@ -297,6 +320,17 @@ function analysisHtml(date, w) {
   let vNow = 0, vPrev = 0, better = 0, cmp = 0;
   const rows = [];
   w.exercises.forEach((ex, ei) => {
+    if (ex.cardio) { // бег: сравниваем время и скорость по этапам, в общий объём не входит
+      const na = getSlot(date, w.id, ei).today, nb = getSlot(pd, w.id, ei).today;
+      const lines = ex.reps.map((label, si) => {
+        const a = splitSet(na[si]), b = splitSet(nb[si]), parts = [];
+        if (parseFloat(a.r) > 0 && parseFloat(b.r) > 0) parts.push(`${fmtN(parseFloat(a.r))} мин ${arrow(parseFloat(a.r) - parseFloat(b.r), " мин")}`);
+        if (parseFloat(a.w) > 0 && parseFloat(b.w) > 0) parts.push(`${fmtN(parseFloat(a.w))} км/ч ${arrow(parseFloat(a.w) - parseFloat(b.w), " км/ч")}`);
+        return parts.length ? `<div>${label}: ${parts.join(" · ")}</div>` : "";
+      }).join("");
+      if (lines) rows.unshift(`<div class="an-row"><b>${esc(ex.name)}</b>${lines}</div>`);
+      return;
+    }
     const a = exStats(getSlot(date, w.id, ei).today), b = exStats(getSlot(pd, w.id, ei).today);
     if (!a.reps || !b.reps) return;
     cmp++; vNow += a.vol; vPrev += b.vol;
@@ -308,11 +342,11 @@ function analysisHtml(date, w) {
       ${a.max || b.max ? `<div>Макс. вес ${fmtN(a.max)} кг ${arrow(a.max - b.max, " кг")}</div>` : ""}</div>`);
   });
   const pdLabel = pd.slice(8) + "." + pd.slice(5, 7);
-  if (!cmp) return `<div class="an-empty">Нет общих упражнений с тренировкой от ${pdLabel}. Впиши результаты в колонку «Сегодня».</div>`;
+  if (!cmp && !rows.length) return `<div class="an-empty">Нет общих упражнений с тренировкой от ${pdLabel}. Впиши результаты в колонку «Сегодня».</div>`;
   const pct = vPrev ? Math.round((vNow - vPrev) / vPrev * 100) : 0;
   const durNow = (state[date][w.id] || {}).dur, durPrev = (state[pd][w.id] || {}).dur;
   return `<div class="an-sum">Сравнение с тренировкой от <b>${pdLabel}</b><br>
-    Улучшено упражнений: <b>${better} из ${cmp}</b><br>
+    ${cmp ? `Улучшено упражнений: <b>${better} из ${cmp}</b><br>` : ""}
     ${vPrev ? `Общий объём: <b>${fmtN(vNow)} кг</b> ${arrow(pct, "%")}<br>` : ""}
     ${durNow && durPrev ? `Время: <b>${fmtLong(durNow)}</b> (в прошлый раз ${fmtLong(durPrev)})` : ""}</div>${rows.join("")}`;
 }
@@ -341,7 +375,7 @@ function renderHistory() {
   Object.keys(state).sort().reverse().forEach(date => WORKOUTS.forEach(w => {
     const r = state[date][w.id];
     if (!r) return;
-    const done = w.exercises.map((ex, ei) => ({ ex, s: getSlot(date, w.id, ei) }))
+    const done = orderOf(w).map(ei => ({ ex: w.exercises[ei], s: getSlot(date, w.id, ei) }))
       .filter(x => x.s.done || x.s.today.some(v => v));
     if (done.length || r.dur || r.note || r.logged) items.push({ date, w, r, done });
   }));
@@ -349,9 +383,13 @@ function renderHistory() {
   if (!items.length) return html + `<div class="empty">Пока пусто. Заверши первую тренировку, и она появится здесь.</div>`;
   return html + items.map(({ date, w, r, done }) => {
     const d = new Date(date + "T12:00:00");
-    const sub = [done.length ? `${done.filter(x => x.s.done).length} из ${w.exercises.length} упр.` : "", r.dur ? fmtLong(r.dur) : ""].filter(Boolean).join(" · ");
+    const strength = done.filter(x => !x.ex.cardio);
+    const sub = [strength.length ? `${strength.filter(x => x.s.done).length} из ${w.exercises.filter(e => !e.cardio).length} упр.` : "", r.dur ? fmtLong(r.dur) : ""].filter(Boolean).join(" · ");
     const note = r.note ? `<div class="hist-ex"><b>Заметки</b><span>${esc(r.note)}</span></div>` : "";
-    const list = note + (done.length ? analysisHtml(date, w) : "") + done.map(x => `<div class="hist-ex"><b>${esc(x.ex.name)}</b><span>${x.s.today.filter(v => v).map(esc).join(", ") || "без записи"}</span></div>`).join("");
+    const shown = x => x.ex.cardio
+      ? x.ex.reps.map((l, si) => x.s.today[si] ? `${l}: ${fmtCardio(x.s.today[si])}` : "").filter(Boolean).map(esc).join("; ")
+      : x.s.today.filter(v => v).map(esc).join(", ");
+    const list = note + (done.some(x => !x.ex.cardio) ? analysisHtml(date, w) : "") + done.map(x => `<div class="hist-ex"><b>${esc(x.ex.name)}</b><span>${shown(x) || "без записи"}</span></div>`).join("");
     return `<details class="hist"><summary><div class="hist-title">${esc(w.title)}</div>
       <div class="hist-sub">${weekdays[d.getDay()]} ${d.toLocaleDateString("ru-RU")}${sub ? " · " + sub : ""}</div></summary>${list}
       <button class="del" data-del="${date}|${w.id}">Удалить тренировку</button></details>`;
@@ -379,10 +417,16 @@ function render() {
     html += `<div class="empty">Эта тренировка пока пустая</div>`;
   } else {
     // В списке результаты только показываются; вносить их можно в открытом упражнении
-    w.exercises.forEach((ex, ei) => {
+    orderOf(w).forEach(ei => {
+      const ex = w.exercises[ei];
       const s = getSlot(day, w.id, ei);
       const prev = prevFor(w, ei);
-      const rows = ex.reps.map((r, si) => `
+      const rows = ex.cardio ? ex.reps.map((label, si) => `
+        <tr>
+          <td class="n">${label}</td>
+          <td class="prev">${esc(fmtCardio(prev.vals[si]) || "")}</td>
+          <td class="val">${s.today[si] ? esc(fmtCardio(s.today[si])) : "–"}</td>
+        </tr>`).join("") : ex.reps.map((r, si) => `
         <tr>
           <td class="n">${si + 1}</td>
           <td>${r}</td>
@@ -390,6 +434,9 @@ function render() {
           <td class="prev">${esc(prev.vals[si] || "")}</td>
           <td class="val">${s.today[si] ? esc(s.today[si]) : "–"}</td>
         </tr>`).join("");
+      const head = ex.cardio
+        ? `<tr><th>Этап</th><th>${prev.label || "Прошлый раз"}</th><th>Сегодня</th></tr>`
+        : `<tr><th>Подход</th><th>Повторения</th><th>Отдых</th><th>${prev.label}</th><th>Сегодня</th></tr>`;
       html += `
         <section class="card ${s.done ? "done" : ""}" data-open="${ei}">
           <div class="card-head">
@@ -399,7 +446,7 @@ function render() {
           <div class="card-body">
             <img class="thumb" src="${photoSrc(w, ei)}" alt="" onerror="this.remove()">
             ${ex.reps.length ? `<table>
-              <tr><th>Подход</th><th>Повторения</th><th>Отдых</th><th>${prev.label}</th><th>Сегодня</th></tr>
+              ${head}
               ${rows}
             </table>` : ""}
           </div>
@@ -422,7 +469,16 @@ function splitSet(v) {
 function renderDetail() {
   const w = WORKOUTS.find(x => x.id === openEx.w), ei = openEx.e, ex = w.exercises[ei];
   const s = getSlot(dayKey(), w.id, ei), prev = prevFor(w, ei);
-  const rows = ex.reps.map((r, si) => {
+  const order = orderOf(w), pos = order.indexOf(ei);
+  const rows = ex.cardio ? ex.reps.map((label, si) => {
+    const v = splitSet(s.today[si]), p = splitSet(prev.vals[si]);
+    return `<tr>
+      <td class="n">${label}</td>
+      <td class="prev">${esc(fmtCardio(prev.vals[si]))}</td>
+      <td><input class="inp" inputmode="decimal" placeholder="${esc(p.r)}" value="${esc(v.r)}" data-s="${si}" data-k="r"></td>
+      <td><input class="inp" inputmode="decimal" placeholder="${esc(p.w)}" value="${esc(v.w)}" data-s="${si}" data-k="w"></td>
+    </tr>`;
+  }).join("") : ex.reps.map((r, si) => {
     const v = splitSet(s.today[si]), p = splitSet(prev.vals[si]);
     return `<tr>
       <td class="n">${si + 1}</td>
@@ -436,14 +492,16 @@ function renderDetail() {
   document.getElementById("app").innerHTML = `
     <button class="back" data-back="1">← К списку</button>
     <h1 class="ex-title">${esc(ex.name)}</h1>
-    <div class="date">${esc(w.title)} · упражнение ${ei + 1} из ${w.exercises.length}</div>
+    <div class="date">${esc(w.title)} · упражнение ${pos + 1} из ${order.length}</div>
     <img class="photo" src="${photoSrc(w, ei)}" alt="" onerror="this.remove()">
     <section class="card">${ex.reps.length ? `<table class="detail">
-      <tr><th>Подход</th><th>План</th><th>${prev.label}</th><th>Повторы</th><th>Вес, кг</th><th>Отдых</th></tr>
+      ${ex.cardio
+        ? `<tr><th>Этап</th><th>${prev.label || "Прошлый раз"}</th><th>Время, мин</th><th>Скорость, км/ч</th></tr>`
+        : `<tr><th>Подход</th><th>План</th><th>${prev.label}</th><th>Повторы</th><th>Вес, кг</th><th>Отдых</th></tr>`}
       ${rows}
     </table>` : `<div class="an-empty">Подходы для этого упражнения пока не добавлены.</div>`}</section>
     <button class="start" data-donex="1">${s.done ? "✓ Выполнено (нажми, чтобы снять)" : "Отметить выполненным"}</button>
-    ${ei + 1 < w.exercises.length ? `<button class="ghost" data-next="1">Следующее упражнение →</button>` : ""}`;
+    ${pos + 1 < order.length ? `<button class="ghost" data-next="1">Следующее упражнение →</button>` : ""}`;
 }
 function closeDetail() { openEx = null; render(); window.scrollTo(0, listScroll); }
 
@@ -457,7 +515,10 @@ document.addEventListener("click", e => {
   }
   else if (t.dataset.rest) startTimer(+t.dataset.rest);
   else if (t.dataset.back) closeDetail();
-  else if (t.dataset.next) { openEx.e++; render(); window.scrollTo(0, 0); }
+  else if (t.dataset.next) {
+    const order = orderOf(WORKOUTS.find(x => x.id === openEx.w));
+    openEx.e = order[order.indexOf(openEx.e) + 1]; render(); window.scrollTo(0, 0);
+  }
   else if (t.dataset.donex) {
     const day = dayKey(), s = setSlot(day, openEx.w, openEx.e); s.done = !s.done; saveDay(day); render();
   }
