@@ -363,6 +363,9 @@ function loadAll() {
 
 let current = WORKOUTS[0].id;
 let editing = null; // id тренировки, план которой сейчас правится
+// Дата, за которую правятся результаты. null — сегодня (обычная тренировка), иначе прошлая тренировка из истории.
+let viewDate = null, addPast = false;
+const viewDay = () => viewDate || dayKey();
 let openEx = null, listScroll = 0; // открытое упражнение {w, e} и положение списка, чтобы вернуться на то же место
 const getSlot = (date, wid, ei) => (state[date] && state[date][wid] && state[date][wid].ex && state[date][wid].ex[ei]) || { done: false, today: [] };
 function setSlot(date, wid, ei) {
@@ -370,8 +373,8 @@ function setSlot(date, wid, ei) {
   return ((w.ex ??= {})[ei] ??= { done: false, today: [] });
 }
 // «Прошлый раз»: последняя запись этого упражнения до сегодняшнего дня, а если её нет — результаты из файла
-function prevFor(w, ei) {
-  const today = dayKey();
+function prevFor(w, ei, date) {
+  const today = date || dayKey();
   for (const d of Object.keys(state).filter(d => d < today).sort().reverse()) {
     const t = getSlot(d, w.id, ei).today;
     if (t.some(v => v)) return { vals: t, label: d.slice(8) + "." + d.slice(5, 7) };
@@ -418,8 +421,8 @@ function recordMarks(date, w, ei) { // для каждого подхода: tru
   });
 }
 // Заметка к упражнению: берётся последняя записанная (пустая — значит стёрта), чтобы переходила на следующие тренировки
-function noteFor(w, ei) {
-  for (const d of Object.keys(state).filter(d => d <= dayKey()).sort().reverse()) {
+function noteFor(w, ei, date) {
+  for (const d of Object.keys(state).filter(d => d <= (date || dayKey())).sort().reverse()) {
     const n = getSlot(d, w.id, ei).note;
     if (typeof n === "string") return n;
   }
@@ -549,6 +552,15 @@ function calendarHtml(items) {
   </section>`;
 }
 
+// Добавить тренировку, которую забыл записать
+function addPastHtml() {
+  if (!addPast) return `<button class="ghost" data-addpast="1" style="margin:0 0 12px">＋ Добавить прошлую тренировку</button>`;
+  return `<section class="card plain"><b>Прошлая тренировка</b>
+    <label class="ed-l">Дата <input type="date" id="pastDate" class="ed-in" max="${dayKey()}"></label>
+    <label class="ed-l">Тренировка <select id="pastW" class="ed-in">${WORKOUTS.map(w => `<option value="${w.id}">${esc(w.title)}</option>`).join("")}</select></label>
+    <div class="segs"><button class="seg" data-pastcreate="1">Создать</button><button class="seg" data-addpast="0">Отмена</button></div></section>`;
+}
+
 function renderHistory() {
   const items = [];
   Object.keys(state).sort().reverse().forEach(date => WORKOUTS.forEach(w => {
@@ -558,7 +570,7 @@ function renderHistory() {
       .filter(x => x.s.done || x.s.today.some(v => v));
     if (done.length || r.dur || r.note || r.logged) items.push({ date, w, r, done });
   }));
-  let html = `<h1>История</h1><div class="date">Прошедшие тренировки</div>` + subBanner() + calendarHtml(items);
+  let html = `<h1>История</h1><div class="date">Прошедшие тренировки</div>` + subBanner() + calendarHtml(items) + addPastHtml();
   if (!items.length) return html + `<div class="empty">Пока пусто. Заверши первую тренировку, и она появится здесь.</div>`;
   if (calDay) html += `<button class="ghost" data-calday="">Показать все тренировки</button>`;
   return html + (calDay ? items.filter(i => i.date === calDay) : items).map(({ date, w, r, done }) => {
@@ -573,6 +585,7 @@ function renderHistory() {
     const list = note + (done.some(x => !x.ex.cardio) ? analysisHtml(date, w) : "") + done.map(x => `<div class="hist-ex"><b>${esc(x.ex.name)}</b><span>${shown(x) || "без записи"}</span>${noteOf(x)}</div>`).join("");
     return `<details class="hist"><summary><div class="hist-title">${esc(w.title)}</div>
       <div class="hist-sub">${weekdays[d.getDay()]} ${d.toLocaleDateString("ru-RU")}${sub ? " · " + sub : ""}</div></summary>${list}
+      <button class="ghost" data-editday="${date}|${w.id}" style="margin-top:12px">✎ Редактировать результаты</button>
       <button class="del" data-del="${date}|${w.id}">Удалить тренировку</button></details>`;
   }).join("");
 }
@@ -590,10 +603,12 @@ function render() {
   if (openEx) { renderDetail(); return; }
 
   const w = WORKOUTS.find(x => x.id === current);
-  const now = new Date(), day = dayKey();
+  const day = viewDay(), now = new Date(day + "T12:00:00");
   const dateStr = `${weekdays[now.getDay()]} ${now.toLocaleDateString("ru-RU")}`;
-  let html = `<h1>${esc(w.title)}</h1><div class="date">${dateStr}</div>` + subBanner();
-  if (!sessionStart) html += `<button class="start" id="startBtn">Начать тренировку!</button>`;
+  let html = `<h1>${esc(w.title)}</h1><div class="date">${dateStr}</div>`;
+  if (viewDate) html += `<div class="sub-banner">✎ Правка прошлой тренировки. Результаты вносятся без секундомера, всё сохраняется сразу.</div>
+    <button class="start" data-doneedit="1">Готово</button>`;
+  else html += subBanner() + (sessionStart ? "" : `<button class="start" id="startBtn">Начать тренировку!</button>`);
 
   if (!w.exercises.length) {
     html += `<div class="empty">Эта тренировка пока пустая</div>`;
@@ -602,8 +617,8 @@ function render() {
     orderOf(w).forEach(ei => {
       const ex = w.exercises[ei];
       const s = getSlot(day, w.id, ei);
-      const prev = prevFor(w, ei);
-      const marks = recordMarks(day, w, ei), note = noteFor(w, ei);
+      const prev = prevFor(w, ei, day);
+      const marks = recordMarks(day, w, ei), note = noteFor(w, ei, day);
       const rows = ex.cardio ? ex.reps.map((label, si) => `
         <tr>
           <td class="n">${label}</td>
@@ -637,7 +652,7 @@ function render() {
         </section>`;
     });
   }
-  html += `<button class="ghost" data-edit="1">✎ Изменить план</button>`;
+  if (!viewDate) html += `<button class="ghost" data-edit="1">✎ Изменить план</button>`;
   document.getElementById("app").innerHTML = html;
 }
 
@@ -680,9 +695,9 @@ function splitSet(v) {
 }
 function renderDetail() {
   const w = WORKOUTS.find(x => x.id === openEx.w), ei = openEx.e, ex = w.exercises[ei];
-  const s = getSlot(dayKey(), w.id, ei), prev = prevFor(w, ei);
+  const s = getSlot(viewDay(), w.id, ei), prev = prevFor(w, ei, viewDay());
   const order = orderOf(w), pos = order.indexOf(ei);
-  const marks = recordMarks(dayKey(), w, ei);
+  const marks = recordMarks(viewDay(), w, ei);
   const rows = ex.cardio ? ex.reps.map((label, si) => {
     const v = splitSet(s.today[si]), p = splitSet(prev.vals[si]);
     return `<tr>
@@ -717,7 +732,7 @@ function renderDetail() {
     ${ex.cardio ? "" : `<label class="auto"><input type="checkbox" id="autoRest" ${autoRest() ? "checked" : ""}> Автоотдых после записи подхода</label>
     <section class="card plain" id="chart">${chartHtml(w, ei)}</section>`}
     <section class="card plain"><b>Заметка</b>
-      <textarea class="note-in" rows="2" placeholder="Например: высота сиденья 8">${esc(noteFor(w, ei))}</textarea></section>
+      <textarea class="note-in" rows="2" placeholder="Например: высота сиденья 8">${esc(noteFor(w, ei, viewDay()))}</textarea></section>
     <button class="start" data-donex="1">${s.done ? "✓ Выполнено (нажми, чтобы снять)" : "Отметить выполненным"}</button>
     ${pos + 1 < order.length ? `<button class="ghost" data-next="1">Следующее упражнение →</button>` : ""}`;
 }
@@ -761,7 +776,7 @@ function toast(msg) {
 // Обновляем рекорды и график на месте, не перерисовывая поля (иначе пропадёт фокус)
 function refreshLive() {
   const w = WORKOUTS.find(x => x.id === openEx.w), ei = openEx.e;
-  const marks = recordMarks(dayKey(), w, ei);
+  const marks = recordMarks(viewDay(), w, ei);
   document.querySelectorAll("td[data-mark]").forEach(td => { const si = +td.dataset.mark; td.textContent = (si + 1) + (marks[si] ? " 🏆" : ""); });
   const c = document.getElementById("chart");
   if (c) c.innerHTML = chartHtml(w, ei);
@@ -771,16 +786,28 @@ function refreshLive() {
 // ---------- События ----------
 document.addEventListener("click", e => {
   const t = e.target;
-  if (t.dataset.w) { current = t.dataset.w; openEx = null; editing = null; render(); window.scrollTo(0, 0); }
+  if (t.dataset.w) { current = t.dataset.w; openEx = null; editing = null; viewDate = null; addPast = false; render(); window.scrollTo(0, 0); }
+  else if (t.dataset.editday) { // открыть прошлую тренировку на правку
+    const [date, wid] = t.dataset.editday.split("|");
+    current = wid; viewDate = date; openEx = null; editing = null; render(); window.scrollTo(0, 0);
+  }
+  else if (t.dataset.addpast) { addPast = t.dataset.addpast === "1"; render(); }
+  else if (t.dataset.pastcreate) {
+    const date = document.getElementById("pastDate").value, wid = document.getElementById("pastW").value;
+    if (!date || date > dayKey()) { toast("Выбери дату не позже сегодняшней"); return; }
+    ((state[date] ??= {})[wid] ??= {}).logged = true; saveDay(date); // запись видна в истории, даже пока в ней нет результатов
+    addPast = false; current = wid; viewDate = date; openEx = null; editing = null; render(); window.scrollTo(0, 0);
+  }
+  else if (t.dataset.doneedit) { viewDate = null; current = "history"; openEx = null; render(); window.scrollTo(0, 0); }
   else if (t.classList.contains("check")) {
     if (!needSession()) return;
-    const day = dayKey(), s = setSlot(day, current, t.dataset.e); s.done = !s.done; saveDay(day); render();
+    const day = viewDay(), s = setSlot(day, current, t.dataset.e); s.done = !s.done; saveDay(day); render();
   }
   else if (t.dataset.rest) startTimer(+t.dataset.rest);
   else if (t.dataset.back) closeDetail();
   else if (t.dataset.fill) { // подставляем прошлые результаты только в пустые подходы
-    const w = WORKOUTS.find(x => x.id === openEx.w), ei = openEx.e, day = dayKey();
-    const prev = prevFor(w, ei), s = setSlot(day, w.id, ei);
+    const w = WORKOUTS.find(x => x.id === openEx.w), ei = openEx.e, day = viewDay();
+    const prev = prevFor(w, ei, day), s = setSlot(day, w.id, ei);
     let n = 0;
     w.exercises[ei].reps.forEach((_, si) => { if (!s.today[si] && prev.vals[si]) { s.today[si] = prev.vals[si]; n++; } });
     if (n) { saveDay(day); render(); toast(`Подставлено подходов: ${n}`); } else toast("Все подходы уже заполнены");
@@ -826,7 +853,7 @@ document.addEventListener("click", e => {
     openEx.e = order[order.indexOf(openEx.e) + 1]; render(); window.scrollTo(0, 0);
   }
   else if (t.dataset.donex) {
-    const day = dayKey(), s = setSlot(day, openEx.w, openEx.e); s.done = !s.done; saveDay(day); render();
+    const day = viewDay(), s = setSlot(day, openEx.w, openEx.e); s.done = !s.done; saveDay(day); render();
   }
   else if (t.id === "timerStop") stopTimer();
   else if (t.id === "startBtn") startSession();
@@ -844,7 +871,7 @@ document.addEventListener("click", e => {
 });
 // Вносить результаты можно только во время начатой тренировки
 function needSession(after) {
-  if (sessionStart) return true;
+  if (viewDate || sessionStart) return true; // правка прошлой тренировки идёт без секундомера
   ask("Сначала нужно начать тренировку. Начать сейчас?", () => { startSession(); if (after) after(); });
   return false;
 }
@@ -853,7 +880,7 @@ document.addEventListener("input", e => {
   const el = e.target;
   if (!openEx || !el.classList.contains("inp")) return;
   const get = k => (document.querySelector(`.inp[data-s="${el.dataset.s}"][data-k="${k}"]`).value || "").trim().replace(",", ".");
-  const r = get("r"), wt = get("w"), day = dayKey();
+  const r = get("r"), wt = get("w"), day = viewDay();
   setSlot(day, openEx.w, openEx.e).today[el.dataset.s] = wt ? `${r}x${wt}` : r;
   saveDay(day);
   refreshLive();
@@ -873,14 +900,14 @@ document.addEventListener("change", e => {
   const get = k => (document.querySelector(`.inp[data-s="${si}"][data-k="${k}"]`).value || "").trim();
   const r = get("r"), wt = get("w");
   if (refreshLive()[si]) {
-    const key = [dayKey(), w.id, openEx.e, si].join("|");
+    const key = [viewDay(), w.id, openEx.e, si].join("|");
     if (!recSeen[key]) {
       recSeen[key] = 1; toast(`🏆 Новый рекорд веса: ${wt} кг!`);
       if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
     }
   }
   // подход считается записанным, когда есть повторы и вес (или вес у упражнения вообще не ведётся)
-  if (autoRest() && r && (wt || !splitSet(prevFor(w, openEx.e).vals[si]).w)) startTimer(ex.rest);
+  if (!viewDate && autoRest() && r && (wt || !splitSet(prevFor(w, openEx.e).vals[si]).w)) startTimer(ex.rest); // у прошлой тренировки отдых не нужен
 });
 // Редактор плана: правки сохраняются сразу, без перерисовки (чтобы не терялся фокус в поле)
 document.addEventListener("input", e => {
@@ -894,7 +921,7 @@ document.addEventListener("input", e => {
 // Заметка к упражнению
 document.addEventListener("input", e => {
   if (!openEx || !e.target.classList.contains("note-in")) return;
-  const day = dayKey();
+  const day = viewDay();
   setSlot(day, openEx.w, openEx.e).note = e.target.value;
   saveDay(day);
 });
@@ -958,7 +985,25 @@ function startSession() {
   if (cloud) cloud.setItem("session", raw, () => {}); // запасная копия: тренировка запомнится, даже если память телефона очистится
   runSession(); render();
 }
-function stopSession() { ask("Завершить тренировку?", doStopSession); }
+// Если за тренировку не внесено ни одного результата, предлагаем не сохранять её: так в истории не копятся пустые записи
+function stopSession() {
+  const date = dateKey(new Date(sessionStart)), r = (state[date] || {})[sessionWid];
+  const filled = r && Object.values(r.ex || {}).some(s => s.done || (s.today || []).some(v => v));
+  if (filled) ask("Завершить тренировку?", doStopSession);
+  else ask("Ты не внёс ни одного результата. Закончить без сохранения? Нажми «Отмена», чтобы продолжить тренировку.", discardSession);
+}
+function endSessionUi() { // общее для завершения и отмены: останавливаем секундомер и забываем запущенную тренировку
+  clearInterval(sessionTick); sessionStart = 0; sessionWid = null;
+  try { localStorage.removeItem("gym-session"); } catch (e) {}
+  if (cloud) cloud.removeItem("session", () => {});
+  document.getElementById("session").style.display = "none";
+}
+function discardSession() {
+  const date = dateKey(new Date(sessionStart)), r = (state[date] || {})[sessionWid];
+  if (r && !r.dur && !r.note && !r.logged) { delete state[date][sessionWid]; saveDay(date); } // убираем пустые заготовки
+  endSessionUi(); render();
+  toast("Тренировка не сохранена, потому что в ней не было результатов");
+}
 function doStopSession() {
   // записываем длительность в тот день и ту тренировку, где её начали
   const date = dateKey(new Date(sessionStart));
@@ -966,10 +1011,7 @@ function doStopSession() {
   r.dur = (r.dur || 0) + Math.floor((Date.now() - sessionStart) / 1000);
   saveDay(date);
   const finished = WORKOUTS.find(x => x.id === sessionWid);
-  clearInterval(sessionTick); sessionStart = 0; sessionWid = null;
-  try { localStorage.removeItem("gym-session"); } catch (e) {}
-  if (cloud) cloud.removeItem("session", () => {});
-  document.getElementById("session").style.display = "none";
+  endSessionUi();
   current = "history"; openEx = null; render(); // после завершения показываем историю и итоги
   if (finished) showSummary(date, finished);
 }
