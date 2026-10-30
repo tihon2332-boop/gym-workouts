@@ -159,10 +159,33 @@ function saveDay(date) {
     cloudTimers[date] = setTimeout(() => cloud.setItem("d_" + date, raw, () => {}), 600);
   }
 }
+// Уже проведённые тренировки, внесённые вручную. Подставляются, только если за эту дату записи ещё нет.
+const SEED = {
+  "2026-10-18": { "back-biceps": { logged: true } },
+  "2026-10-23": { "back-biceps": { note: "Ходьба 7 мин, бег 3 мин" } },
+  "2026-10-28": { "back-biceps": {
+    note: "Ходьба 6,5 мин, бег 3,5 мин",
+    ex: {
+      0: { done: true, today: ["15x5", "15x5", "15x0", "15x0"] },
+      1: { done: true, today: ["12", "12", "12", "12"] },
+      2: { done: true, today: ["15x30", "15x30", "12x35", "12x35"] },
+      3: { done: true, today: ["12x10", "12x12.5", "12x12.5"] },
+      4: { done: true, today: ["15x20", "15x22.5", "15x2"] },
+      5: { done: true, today: ["15x8", "15x9", "15x9", "15"] },
+      6: { done: true, today: ["12x20", "12x20", "10x20", "10"] }
+    }
+  } }
+};
+
 function loadAll() {
   for (let i = 0; i < (localStorage.length || 0); i++) {
     try { const k = localStorage.key(i); if (k.startsWith("d_")) mergeDay(k.slice(2), localStorage.getItem(k)); } catch (e) {}
   }
+  Object.keys(SEED).forEach(date => {
+    if (state[date]) return;
+    state[date] = Object.assign({ _u: 1 }, SEED[date]);
+    lsSet("d_" + date, JSON.stringify(state[date]));
+  });
   if (!cloud) return;
   cloud.getKeys((err, keys) => {
     keys = err ? [] : (keys || []).filter(k => k.startsWith("d_"));
@@ -210,16 +233,17 @@ function renderHistory() {
     if (!r) return;
     const done = w.exercises.map((ex, ei) => ({ ex, s: getSlot(date, w.id, ei) }))
       .filter(x => x.s.done || x.s.today.some(v => v));
-    if (done.length || r.dur) items.push({ date, w, r, done });
+    if (done.length || r.dur || r.note || r.logged) items.push({ date, w, r, done });
   }));
   let html = `<h1>История</h1><div class="date">Прошедшие тренировки</div>`;
   if (!items.length) return html + `<div class="empty">Пока пусто. Заверши первую тренировку, и она появится здесь.</div>`;
   return html + items.map(({ date, w, r, done }) => {
     const d = new Date(date + "T12:00:00");
-    const sub = [`${done.filter(x => x.s.done).length} из ${w.exercises.length} упр.`, r.dur ? fmtLong(r.dur) : ""].filter(Boolean).join(" · ");
-    const list = done.map(x => `<div class="hist-ex"><b>${esc(x.ex.name)}</b><span>${x.s.today.filter(v => v).map(esc).join(", ") || "без записи"}</span></div>`).join("");
+    const sub = [done.length ? `${done.filter(x => x.s.done).length} из ${w.exercises.length} упр.` : "", r.dur ? fmtLong(r.dur) : ""].filter(Boolean).join(" · ");
+    const note = r.note ? `<div class="hist-ex"><b>Кардио</b><span>${esc(r.note)}</span></div>` : "";
+    const list = note + done.map(x => `<div class="hist-ex"><b>${esc(x.ex.name)}</b><span>${x.s.today.filter(v => v).map(esc).join(", ") || "без записи"}</span></div>`).join("");
     return `<details class="hist"><summary><div class="hist-title">${esc(w.title)}</div>
-      <div class="hist-sub">${weekdays[d.getDay()]} ${d.toLocaleDateString("ru-RU")} · ${sub}</div></summary>${list}</details>`;
+      <div class="hist-sub">${weekdays[d.getDay()]} ${d.toLocaleDateString("ru-RU")}${sub ? " · " + sub : ""}</div></summary>${list}</details>`;
   }).join("");
 }
 
