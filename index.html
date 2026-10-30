@@ -37,6 +37,15 @@
   input.inp { width: 56px; padding: 8px 4px; border: 1px solid #ddd; border-radius: 8px; text-align: center; font-size: 16px; }
   button.ghost { margin-top: 10px; width: 100%; padding: 14px; border: 0; border-radius: 14px; background: #fff; font-size: 15px; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
   td.val { white-space: nowrap; }
+  .card.plain { cursor: default; }
+  .card-note { margin-top: 8px; font-size: 14px; color: var(--muted); }
+  .hist-note { margin-top: 2px; font-size: 13px; color: var(--muted); }
+  .auto { display: block; margin: 4px 4px 12px; font-size: 14px; color: var(--muted); }
+  .note-in { display: block; width: 100%; margin-top: 8px; padding: 8px; border: 1px solid #ddd; border-radius: 8px; font: inherit; font-size: 15px; resize: vertical; }
+  .segs { display: flex; gap: 6px; margin: 8px 0; }
+  .seg { flex: 1; padding: 6px 2px; border: 0; border-radius: 8px; background: #f0f0f0; font-size: 13px; font-weight: 600; }
+  .seg.on { background: var(--yellow); }
+  #toast { display: none; position: fixed; left: 12px; right: 12px; top: 70px; z-index: 30; background: #222; color: #fff; border-radius: 12px; padding: 12px 16px; font-weight: 700; text-align: center; }
 
   main { padding: 0 12px; }
   h1 { font-size: 26px; margin: 18px 4px 2px; }
@@ -99,6 +108,7 @@
 <main id="app"></main>
 
 <div id="modal"></div>
+<div id="toast"></div>
 <div id="timer"><span id="timerText">Отдых 0:00</span><button id="timerStop">Пропустить</button></div>
 
 <script>
@@ -199,7 +209,8 @@ function saveDay(date) {
   }
 }
 // Уже проведённые тренировки, внесённые вручную. Подставляются, только если за эту дату записи ещё нет.
-// _seed — версия набора: при изменении набора записи, которые ты не правил (_u <= 2), обновляются.
+// SEED_V — версия набора: при её увеличении записи, которые ты не правил (_u <= SEED_V), обновляются.
+const SEED_V = 3;
 const SEED = {
   "2026-10-18": { "back-biceps": { logged: true } },
   "2026-10-23": { "back-biceps": { ex: { 8: { done: true, today: ["7", "3"] } } } },
@@ -217,11 +228,10 @@ const SEED = {
   } },
   "2026-10-21": { "chest-shoulders": { ex: { 9: { done: true, today: ["7", "3"] } } } },
   "2026-10-26": { "chest-shoulders": {
-    note: "Жим в Хаммере: высота 8",
     ex: {
       9: { done: true, today: ["6.5", "3.5"] },
       0: { done: true, today: ["10x40", "10", "10", "10"] },
-      1: { done: true, today: ["15x30", "15x35", "15x40", "15x45"] },
+      1: { done: true, today: ["15x30", "15x35", "15x40", "15x45"], note: "Высота 8" },
       2: { done: true, today: ["12x12.5", "12x12.5", "10x12.5", "10x12.5"] },
       3: { done: true, today: ["15x7.5", "15x7.5", "12x7.5", "12x7.5"] },
       5: { done: true, today: ["15x15", "15x20", "15x20", "15x20"] },
@@ -237,8 +247,8 @@ function loadAll() {
   }
   Object.keys(SEED).forEach(date => {
     const s = state[date];
-    if (s && !((s._u || 0) <= 2 && s._seed !== 2)) return; // есть твоя запись или актуальный набор
-    state[date] = Object.assign({ _u: 2, _seed: 2 }, SEED[date]);
+    if (s && !((s._u || 0) <= SEED_V && s._seed !== SEED_V)) return; // есть твоя запись или актуальный набор
+    state[date] = Object.assign({ _u: SEED_V, _seed: SEED_V }, SEED[date]);
     lsSet("d_" + date, JSON.stringify(state[date]));
   });
   if (!cloud) return;
@@ -295,6 +305,33 @@ function exStats(today) { // reps — всего повторений, vol — �
   today.forEach(v => { const s = parseSet(v); if (s) { reps += s.r; vol += s.r * s.w; max = Math.max(max, s.w); } });
   return { reps, vol, max };
 }
+// Рекорды: подход — рекорд, если вес больше, чем когда-либо раньше (включая результаты из файла).
+// Если раньше веса не было вообще, рекордом ничего не считается.
+function baseMax(w, ei, date) {
+  let m = 0;
+  Object.keys(state).filter(d => d < date).forEach(d => { m = Math.max(m, exStats(getSlot(d, w.id, ei).today).max); });
+  (w.exercises[ei].prev || []).forEach(v => { const s = parseSet(v); if (s) m = Math.max(m, s.w); });
+  return m;
+}
+function recordMarks(date, w, ei) { // для каждого подхода: true, если он побил рекорд
+  const ex = w.exercises[ei];
+  if (ex.cardio) return [];
+  let run = baseMax(w, ei, date);
+  return getSlot(date, w.id, ei).today.map(v => {
+    const s = parseSet(v);
+    if (run > 0 && s && s.r > 0 && s.w > run) { run = s.w; return true; }
+    return false;
+  });
+}
+// Заметка к упражнению: берётся последняя записанная (пустая — значит стёрта), чтобы переходила на следующие тренировки
+function noteFor(w, ei) {
+  for (const d of Object.keys(state).filter(d => d <= dayKey()).sort().reverse()) {
+    const n = getSlot(d, w.id, ei).note;
+    if (typeof n === "string") return n;
+  }
+  return "";
+}
+
 // Порядок показа: беговая дорожка первой, дальше как в списке
 const orderOf = w => {
   const idx = w.exercises.map((_, i) => i), c = idx.filter(i => w.exercises[i].cardio);
@@ -317,7 +354,7 @@ const arrow = (d, unit) => d > 0 ? `<span class="up">▲ +${fmtN(d)}${unit}</spa
 function analysisHtml(date, w) {
   const pd = prevDateFor(date, w.id);
   if (!pd) return `<div class="an-empty">Сравнивать пока не с чем: это первая записанная тренировка.</div>`;
-  let vNow = 0, vPrev = 0, better = 0, cmp = 0;
+  let vNow = 0, vPrev = 0, better = 0, cmp = 0, recs = 0;
   const rows = [];
   w.exercises.forEach((ex, ei) => {
     if (ex.cardio) { // бег: сравниваем время и скорость по этапам, в общий объём не входит
@@ -337,7 +374,10 @@ function analysisHtml(date, w) {
     const byVol = a.vol || b.vol;
     const d = byVol ? a.vol - b.vol : a.reps - b.reps;
     if (d > 0 || a.max > b.max) better++;
-    rows.push(`<div class="an-row"><b>${esc(ex.name)}</b>
+    const rec = recordMarks(date, w, ei).some(Boolean);
+    if (rec) recs++;
+    rows.push(`<div class="an-row"><b>${esc(ex.name)}${rec ? " 🏆" : ""}</b>
+      ${rec ? `<div><span class="up">Новый рекорд веса: ${fmtN(a.max)} кг</span></div>` : ""}
       <div>${byVol ? `Объём ${fmtN(a.vol)} кг ${arrow(d, " кг")}` : `Повторений ${a.reps} ${arrow(d, "")}`}</div>
       ${a.max || b.max ? `<div>Макс. вес ${fmtN(a.max)} кг ${arrow(a.max - b.max, " кг")}</div>` : ""}</div>`);
   });
@@ -347,6 +387,7 @@ function analysisHtml(date, w) {
   const durNow = (state[date][w.id] || {}).dur, durPrev = (state[pd][w.id] || {}).dur;
   return `<div class="an-sum">Сравнение с тренировкой от <b>${pdLabel}</b><br>
     ${cmp ? `Улучшено упражнений: <b>${better} из ${cmp}</b><br>` : ""}
+    ${recs ? `Новых рекордов: <b>${recs}</b> 🏆<br>` : ""}
     ${vPrev ? `Общий объём: <b>${fmtN(vNow)} кг</b> ${arrow(pct, "%")}<br>` : ""}
     ${durNow && durPrev ? `Время: <b>${fmtLong(durNow)}</b> (в прошлый раз ${fmtLong(durPrev)})` : ""}</div>${rows.join("")}`;
 }
@@ -386,10 +427,11 @@ function renderHistory() {
     const strength = done.filter(x => !x.ex.cardio);
     const sub = [strength.length ? `${strength.filter(x => x.s.done).length} из ${w.exercises.filter(e => !e.cardio).length} упр.` : "", r.dur ? fmtLong(r.dur) : ""].filter(Boolean).join(" · ");
     const note = r.note ? `<div class="hist-ex"><b>Заметки</b><span>${esc(r.note)}</span></div>` : "";
+    const noteOf = x => x.s.note ? `<div class="hist-note">📝 ${esc(x.s.note)}</div>` : "";
     const shown = x => x.ex.cardio
       ? x.ex.reps.map((l, si) => x.s.today[si] ? `${l}: ${fmtCardio(x.s.today[si])}` : "").filter(Boolean).map(esc).join("; ")
       : x.s.today.filter(v => v).map(esc).join(", ");
-    const list = note + (done.some(x => !x.ex.cardio) ? analysisHtml(date, w) : "") + done.map(x => `<div class="hist-ex"><b>${esc(x.ex.name)}</b><span>${shown(x) || "без записи"}</span></div>`).join("");
+    const list = note + (done.some(x => !x.ex.cardio) ? analysisHtml(date, w) : "") + done.map(x => `<div class="hist-ex"><b>${esc(x.ex.name)}</b><span>${shown(x) || "без записи"}</span>${noteOf(x)}</div>`).join("");
     return `<details class="hist"><summary><div class="hist-title">${esc(w.title)}</div>
       <div class="hist-sub">${weekdays[d.getDay()]} ${d.toLocaleDateString("ru-RU")}${sub ? " · " + sub : ""}</div></summary>${list}
       <button class="del" data-del="${date}|${w.id}">Удалить тренировку</button></details>`;
@@ -421,6 +463,7 @@ function render() {
       const ex = w.exercises[ei];
       const s = getSlot(day, w.id, ei);
       const prev = prevFor(w, ei);
+      const marks = recordMarks(day, w, ei), note = noteFor(w, ei);
       const rows = ex.cardio ? ex.reps.map((label, si) => `
         <tr>
           <td class="n">${label}</td>
@@ -432,7 +475,7 @@ function render() {
           <td>${r}</td>
           <td>${fmt(ex.rest)}</td>
           <td class="prev">${esc(prev.vals[si] || "")}</td>
-          <td class="val">${s.today[si] ? esc(s.today[si]) : "–"}</td>
+          <td class="val">${s.today[si] ? esc(s.today[si]) + (marks[si] ? " 🏆" : "") : "–"}</td>
         </tr>`).join("");
       const head = ex.cardio
         ? `<tr><th>Этап</th><th>${prev.label || "Прошлый раз"}</th><th>Сегодня</th></tr>`
@@ -443,6 +486,7 @@ function render() {
             <h2>${esc(ex.name)}</h2>
             <button class="check" data-e="${ei}">${s.done ? "✓" : ""}</button>
           </div>
+          ${note ? `<div class="card-note">📝 ${esc(note)}</div>` : ""}
           <div class="card-body">
             <img class="thumb" src="${photoSrc(w, ei)}" alt="" onerror="this.remove()">
             ${ex.reps.length ? `<table>
@@ -470,6 +514,7 @@ function renderDetail() {
   const w = WORKOUTS.find(x => x.id === openEx.w), ei = openEx.e, ex = w.exercises[ei];
   const s = getSlot(dayKey(), w.id, ei), prev = prevFor(w, ei);
   const order = orderOf(w), pos = order.indexOf(ei);
+  const marks = recordMarks(dayKey(), w, ei);
   const rows = ex.cardio ? ex.reps.map((label, si) => {
     const v = splitSet(s.today[si]), p = splitSet(prev.vals[si]);
     return `<tr>
@@ -481,7 +526,7 @@ function renderDetail() {
   }).join("") : ex.reps.map((r, si) => {
     const v = splitSet(s.today[si]), p = splitSet(prev.vals[si]);
     return `<tr>
-      <td class="n">${si + 1}</td>
+      <td class="n" data-mark="${si}">${si + 1}${marks[si] ? " 🏆" : ""}</td>
       <td>${r}</td>
       <td class="prev">${esc(prev.vals[si] || "")}</td>
       <td><input class="inp" inputmode="numeric" placeholder="${esc(String(r).split("-")[0])}" value="${esc(v.r)}" data-s="${si}" data-k="r"></td>
@@ -500,10 +545,59 @@ function renderDetail() {
         : `<tr><th>Подход</th><th>План</th><th>${prev.label}</th><th>Повторы</th><th>Вес, кг</th><th>Отдых</th></tr>`}
       ${rows}
     </table>` : `<div class="an-empty">Подходы для этого упражнения пока не добавлены.</div>`}</section>
+    ${ex.cardio ? "" : `<label class="auto"><input type="checkbox" id="autoRest" ${autoRest() ? "checked" : ""}> Автоотдых после записи подхода</label>
+    <section class="card plain" id="chart">${chartHtml(w, ei)}</section>`}
+    <section class="card plain"><b>Заметка</b>
+      <textarea class="note-in" rows="2" placeholder="Например: высота сиденья 8">${esc(noteFor(w, ei))}</textarea></section>
     <button class="start" data-donex="1">${s.done ? "✓ Выполнено (нажми, чтобы снять)" : "Отметить выполненным"}</button>
     ${pos + 1 < order.length ? `<button class="ghost" data-next="1">Следующее упражнение →</button>` : ""}`;
 }
 function closeDetail() { openEx = null; render(); window.scrollTo(0, listScroll); }
+
+// График прогресса по упражнению: по оси X — тренировки, по оси Y — выбранный показатель
+let chartMode = "w";
+function chartHtml(w, ei) {
+  const key = { w: "max", v: "vol", r: "reps" }[chartMode];
+  const data = Object.keys(state).sort().map(d => ({ d, v: exStats(getSlot(d, w.id, ei).today)[key] })).filter(p => p.v > 0);
+  const seg = [["w", "Макс. вес"], ["v", "Объём"], ["r", "Повторы"]]
+    .map(([k, l]) => `<button class="seg ${chartMode === k ? "on" : ""}" data-chart="${k}">${l}</button>`).join("");
+  let body;
+  if (data.length < 2) {
+    body = `<div class="an-empty">График появится, когда будет минимум две записи.</div>`;
+  } else {
+    const W = 300, H = 130, L = 36, R = 12, T = 12, B = 24, n = data.length;
+    const vals = data.map(p => p.v), lo = Math.min(...vals), hi = Math.max(...vals);
+    const lo2 = lo === hi ? lo - 1 : lo, hi2 = lo === hi ? hi + 1 : hi;
+    const x = i => L + i * (W - L - R) / (n - 1), y = v => T + (hi2 - v) / (hi2 - lo2) * (H - T - B);
+    const lbl = d => d.slice(8) + "." + d.slice(5, 7);
+    body = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="График прогресса">
+      <line x1="${L}" y1="${T}" x2="${W - R}" y2="${T}" stroke="#e5e5e5"/><line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}" stroke="#e5e5e5"/>
+      <text x="${L - 4}" y="${T + 4}" text-anchor="end" font-size="10" fill="#777">${fmtN(hi2)}</text>
+      <text x="${L - 4}" y="${H - B + 4}" text-anchor="end" font-size="10" fill="#777">${fmtN(lo2)}</text>
+      <polyline fill="none" stroke="#222" stroke-width="2" points="${data.map((p, i) => x(i) + "," + y(p.v)).join(" ")}"/>
+      ${data.map((p, i) => `<circle cx="${x(i)}" cy="${y(p.v)}" r="3.5" fill="#fdf100" stroke="#222" stroke-width="1.5"/>`).join("")}
+      <text x="${L}" y="${H - 6}" font-size="10" fill="#777">${lbl(data[0].d)}</text>
+      <text x="${W - R}" y="${H - 6}" text-anchor="end" font-size="10" fill="#777">${lbl(data[n - 1].d)}</text></svg>`;
+  }
+  return `<b>Прогресс</b><div class="segs">${seg}</div>${body}`;
+}
+const autoRest = () => lsGet("gym-auto") !== "0";
+const recSeen = {};
+let toastT = null;
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.style.display = "block";
+  clearTimeout(toastT); toastT = setTimeout(() => { t.style.display = "none"; }, 3500);
+}
+// Обновляем рекорды и график на месте, не перерисовывая поля (иначе пропадёт фокус)
+function refreshLive() {
+  const w = WORKOUTS.find(x => x.id === openEx.w), ei = openEx.e;
+  const marks = recordMarks(dayKey(), w, ei);
+  document.querySelectorAll("td[data-mark]").forEach(td => { const si = +td.dataset.mark; td.textContent = (si + 1) + (marks[si] ? " 🏆" : ""); });
+  const c = document.getElementById("chart");
+  if (c) c.innerHTML = chartHtml(w, ei);
+  return marks;
+}
 
 // ---------- События ----------
 document.addEventListener("click", e => {
@@ -515,6 +609,10 @@ document.addEventListener("click", e => {
   }
   else if (t.dataset.rest) startTimer(+t.dataset.rest);
   else if (t.dataset.back) closeDetail();
+  else if (t.dataset.chart) {
+    chartMode = t.dataset.chart;
+    document.getElementById("chart").innerHTML = chartHtml(WORKOUTS.find(x => x.id === openEx.w), openEx.e);
+  }
   else if (t.dataset.next) {
     const order = orderOf(WORKOUTS.find(x => x.id === openEx.w));
     openEx.e = order[order.indexOf(openEx.e) + 1]; render(); window.scrollTo(0, 0);
@@ -549,6 +647,33 @@ document.addEventListener("input", e => {
   const get = k => (document.querySelector(`.inp[data-s="${el.dataset.s}"][data-k="${k}"]`).value || "").trim().replace(",", ".");
   const r = get("r"), wt = get("w"), day = dayKey();
   setSlot(day, openEx.w, openEx.e).today[el.dataset.s] = wt ? `${r}x${wt}` : r;
+  saveDay(day);
+  refreshLive();
+});
+// Когда поле заполнено и закрыто: рекорд -> поздравление, подход записан -> сам включается отдых
+document.addEventListener("change", e => {
+  const el = e.target;
+  if (el.id === "autoRest") { lsSet("gym-auto", el.checked ? "1" : "0"); return; }
+  if (!openEx || !el.classList.contains("inp")) return;
+  const w = WORKOUTS.find(x => x.id === openEx.w), ex = w.exercises[openEx.e], si = el.dataset.s;
+  if (ex.cardio) return;
+  const get = k => (document.querySelector(`.inp[data-s="${si}"][data-k="${k}"]`).value || "").trim();
+  const r = get("r"), wt = get("w");
+  if (refreshLive()[si]) {
+    const key = [dayKey(), w.id, openEx.e, si].join("|");
+    if (!recSeen[key]) {
+      recSeen[key] = 1; toast(`🏆 Новый рекорд веса: ${wt} кг!`);
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred("success");
+    }
+  }
+  // подход считается записанным, когда есть повторы и вес (или вес у упражнения вообще не ведётся)
+  if (autoRest() && r && (wt || !splitSet(prevFor(w, openEx.e).vals[si]).w)) startTimer(ex.rest);
+});
+// Заметка к упражнению
+document.addEventListener("input", e => {
+  if (!openEx || !e.target.classList.contains("note-in")) return;
+  const day = dayKey();
+  setSlot(day, openEx.w, openEx.e).note = e.target.value;
   saveDay(day);
 });
 
