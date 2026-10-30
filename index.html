@@ -57,6 +57,7 @@
   .an-row { background: var(--card); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; font-size: 14px; line-height: 1.5; }
   .an-row b { display: block; font-weight: 600; }
   .an-empty { color: var(--muted); font-size: 14px; margin: 8px 0; }
+  button.del { margin-top: 14px; width: 100%; padding: 10px; border: 1px solid #e3b4b4; background: #fff; color: #d33; border-radius: 10px; font-size: 14px; font-weight: 600; }
   .up { color: var(--done); font-weight: 600; }
   .down { color: #d33; font-weight: 600; }
   .same { color: var(--muted); }
@@ -302,6 +303,19 @@ function showSummary(date, w) {
   m.style.display = "flex";
 }
 
+// Подтверждение: в Telegram — родное окно, в браузере — обычное
+function ask(msg, yes) {
+  if (tg && tg.initData && tg.showConfirm && tg.isVersionAtLeast("6.2")) tg.showConfirm(msg, ok => ok && yes());
+  else if (confirm(msg)) yes();
+}
+// Запись дня остаётся (пустая, только со временем изменения): так удаление синхронизируется
+// с облаком, а внесённые вручную тренировки не появятся снова.
+function deleteEntry(date, wid) {
+  if (!state[date]) return;
+  delete state[date][wid];
+  saveDay(date); render();
+}
+
 function renderHistory() {
   const items = [];
   Object.keys(state).sort().reverse().forEach(date => WORKOUTS.forEach(w => {
@@ -319,7 +333,8 @@ function renderHistory() {
     const note = r.note ? `<div class="hist-ex"><b>Заметки</b><span>${esc(r.note)}</span></div>` : "";
     const list = note + (done.length ? analysisHtml(date, w) : "") + done.map(x => `<div class="hist-ex"><b>${esc(x.ex.name)}</b><span>${x.s.today.filter(v => v).map(esc).join(", ") || "без записи"}</span></div>`).join("");
     return `<details class="hist"><summary><div class="hist-title">${esc(w.title)}</div>
-      <div class="hist-sub">${weekdays[d.getDay()]} ${d.toLocaleDateString("ru-RU")}${sub ? " · " + sub : ""}</div></summary>${list}</details>`;
+      <div class="hist-sub">${weekdays[d.getDay()]} ${d.toLocaleDateString("ru-RU")}${sub ? " · " + sub : ""}</div></summary>${list}
+      <button class="del" data-del="${date}|${w.id}">Удалить тренировку</button></details>`;
   }).join("");
 }
 
@@ -375,6 +390,10 @@ document.addEventListener("click", e => {
   else if (t.dataset.rest) startTimer(+t.dataset.rest);
   else if (t.id === "timerStop") stopTimer();
   else if (t.id === "startBtn") startSession();
+  else if (t.dataset.del) {
+    const [date, wid] = t.dataset.del.split("|");
+    ask("Удалить эту тренировку из истории?", () => deleteEntry(date, wid));
+  }
   else if (t.id === "sessionStop") stopSession();
   else if (t.id === "modalClose" || t.id === "modal") document.getElementById("modal").style.display = "none";
 });
