@@ -452,6 +452,7 @@ document.addEventListener("click", e => {
   const t = e.target;
   if (t.dataset.w) { current = t.dataset.w; openEx = null; render(); window.scrollTo(0, 0); }
   else if (t.classList.contains("check")) {
+    if (!needSession()) return;
     const day = dayKey(), s = setSlot(day, current, t.dataset.e); s.done = !s.done; saveDay(day); render();
   }
   else if (t.dataset.rest) startTimer(+t.dataset.rest);
@@ -469,11 +470,17 @@ document.addEventListener("click", e => {
   else if (t.id === "sessionStop") stopSession();
   else if (t.id === "modalClose" || t.id === "modal") document.getElementById("modal").style.display = "none";
   else if (!openEx && current !== "history" && t.closest("[data-open]")) { // нажатие на карточку открывает упражнение
-    listScroll = window.scrollY;
-    openEx = { w: current, e: +t.closest("[data-open]").dataset.open };
-    render(); window.scrollTo(0, 0);
+    const ei = +t.closest("[data-open]").dataset.open;
+    const open = () => { listScroll = window.scrollY; openEx = { w: current, e: ei }; render(); window.scrollTo(0, 0); };
+    if (needSession(open)) open();
   }
 });
+// Вносить результаты можно только во время начатой тренировки
+function needSession(after) {
+  if (sessionStart) return true;
+  ask("Сначала нужно начать тренировку. Начать сейчас?", () => { startSession(); if (after) after(); });
+  return false;
+}
 // Повторы и вес — два поля, но сохраняются как одна запись "15x30"
 document.addEventListener("input", e => {
   const el = e.target;
